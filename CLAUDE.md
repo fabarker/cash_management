@@ -39,7 +39,7 @@ The project interpreter (per `.idea/`) is `~/virtual-environments/.venv/bin/pyth
 from scripts.cash_optimizer_poc.cash_manager import CashManager, ManualTrade
 from scripts.cash_optimizer_poc.models import Config, CashFlowSet, Direction
 
-cfg = Config(max_trade=10_000_000.0)          # see Big-M note below
+cfg = Config()                                # defaults now work
 cf  = CashFlowSet(horizon_days=cfg.horizon_days)
 cf.add("USD", 1, -100_000)
 
