@@ -56,7 +56,16 @@ class Result:
     improved_from: Optional[float] = None
     solver_used: Optional[str] = None
 
-    # Insufficient funds signal
+    # The whole book in base currency at the end of the horizon, with any
+    # remaining foreign balance converted at the rate it would be dealt at.
+    terminal_base_equivalent: Optional[float] = None
+
+    # Insufficient funds: raised only when the figure above is negative —
+    # after everything is turned back into base, the account still owes
+    # money, so no arrangement of trades could have covered every debit.
+    # An infeasible model is NOT a funding shortfall: base overdrafts are
+    # permitted, so a lack of cash shows up as a negative closing balance
+    # rather than as infeasibility.
     insufficient_funds: bool = False
     shortfall: Optional[float] = None
     shortfall_detail: Dict[str, float] = field(default_factory=dict)
@@ -95,6 +104,11 @@ class Result:
             lines.append(f"  TOTAL COST    : {self.total_cost:,.4f} (base ccy)")
         else:
             lines.append("  TOTAL COST    : N/A")
+        if self.terminal_base_equivalent is not None:
+            lines.append(
+                f"  CLOSING BASE  : {self.terminal_base_equivalent:,.2f} "
+                f"(all currencies converted)"
+            )
         if self.net_terminal_wealth is not None:
             lines.append(
                 f"  NET TERMINAL  : {self.net_terminal_wealth:,.4f} "
@@ -143,7 +157,7 @@ class Result:
             lines.append("")
             lines.append(f"  {'!' * (w - 4)}")
 
-        # ── Insufficient funds warning ──
+        # ── Insufficient funds ──
         if self.insufficient_funds:
             lines.append("")
             lines.append(f"  {'!' * (w - 4)}")
@@ -151,24 +165,60 @@ class Result:
             lines.append(f"  {'!' * (w - 4)}")
             lines.append("")
             lines.append(
-                "  The account does not have sufficient cash across all"
+                "  With every foreign balance converted back to base currency,"
             )
             lines.append(
-                "  currencies to clear all debits within the projection"
+                "  the account still closes in debit. No arrangement of trades"
             )
             lines.append(
-                "  horizon. An external inflow must be instructed."
+                "  can cover every obligation; an external inflow is required."
             )
             if self.shortfall is not None:
                 lines.append("")
-                lines.append(f"  Aggregate shortfall : {self.shortfall:>14,.2f} (base ccy)")
+                lines.append(
+                    f"  Closing balance, all in base : "
+                    f"{self.terminal_base_equivalent:>16,.2f}"
+                )
+                lines.append(
+                    f"  External inflow required     : "
+                    f"{self.shortfall:>16,.2f}"
+                )
             if self.shortfall_detail:
                 lines.append("")
-                lines.append(f"  {'CCY':<14} {'Net Position (base)':>20}")
-                lines.append(f"  {'-' * 34}")
-                for ccy, net in sorted(self.shortfall_detail.items()):
-                    flag = " ◄ DEFICIT" if net < -0.01 else ""
-                    lines.append(f"  {ccy:<14} {net:>20,.2f}{flag}")
+                lines.append(f"  {'CCY':<14} {'Closing, in base':>20}")
+                lines.append(f"  {'-' * 35}")
+                for ccy, amount in sorted(self.shortfall_detail.items()):
+                    flag = " \u25c4 DEFICIT" if amount < -0.01 else ""
+                    lines.append(f"  {ccy:<14} {amount:>20,.2f}{flag}")
+            lines.append("")
+            lines.append(f"  {'!' * (w - 4)}")
+
+        # ── No feasible plan ──
+        elif self.status == "Infeasible":
+            lines.append("")
+            lines.append(f"  {'!' * (w - 4)}")
+            lines.append("  NO FEASIBLE PLAN")
+            lines.append(f"  {'!' * (w - 4)}")
+            lines.append("")
+            lines.append(
+                "  No set of trades satisfies every active constraint. This is"
+            )
+            lines.append(
+                "  a constraint conflict, not a shortage of cash: the model"
+            )
+            lines.append(
+                "  permits a base-currency overdraft, so insufficient funds"
+            )
+            lines.append(
+                "  would show as a negative closing balance, not as this."
+            )
+            lines.append("")
+            lines.append(
+                "  Review the active constraint flags. Switching one off and"
+            )
+            lines.append(
+                "  re-solving will identify which is binding."
+            )
             lines.append("")
             lines.append(f"  {'!' * (w - 4)}")
 

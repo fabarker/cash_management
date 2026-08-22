@@ -812,37 +812,46 @@ class CashOptimizer:
 
     # ── Solve ──────────────────────────────
 
-    def _check_solvency(self) -> Optional[Dict[str, float]]:
+    def _terminal_base_equivalent(self, balances) -> Tuple[float, Dict[str, float]]:
+        """The whole book in base currency at the end of the horizon.
+
+        Takes the plan's closing balances, converts anything still held in a
+        foreign currency back to base at the rate it would actually be dealt
+        at — credit at the bid, debit at the ask — and adds it to the closing
+        base balance.  The terminal sweep normally leaves nothing to convert;
+        a phasing account is the exception.
+
+        A negative result is the one honest definition of insufficient funds:
+        after everything is turned back into base currency, the account still
+        owes money, so no arrangement of trades could ever have covered every
+        debit and an external inflow is genuinely required.
+
+        Returns the total and a per-currency breakdown of what fed into it.
+        """
         base = self.cfg.base_ccy
-        total_resources = 0.0
-        total_obligations = 0.0
-        per_ccy: Dict[str, float] = {}
+        base_label = f"{base} (Base)"
+        last = self.cfg.horizon_days - 1
+        closing = {b.ccy: b for b in balances if b.day == last}
 
-        base_opening = self.opening.get(base, 0.0)
-        base_inflows = sum(max(0.0, self.cf.get(base, d)) for d in range(self.cfg.horizon_days))
-        base_outflows = sum(max(0.0, -self.cf.get(base, d)) for d in range(self.cfg.horizon_days))
-        base_net = base_opening + base_inflows - base_outflows
-        per_ccy[f"{base} (Base)"] = round(base_net, 2)
-        total_resources += max(0.0, base_net)
-        total_obligations += max(0.0, -base_net)
+        contributions: Dict[str, float] = {}
+        total = 0.0
 
-        for ccy in self.active_foreign_ccys:
-            opening = self.opening.get(ccy, 0.0)
-            inflows = sum(max(0.0, self.cf.get(ccy, d)) for d in range(self.cfg.horizon_days))
-            outflows = sum(max(0.0, -self.cf.get(ccy, d)) for d in range(self.cfg.horizon_days))
-            net_foreign = opening + inflows - outflows
-            net_base = net_foreign * self.cfg.fx_spot_mid(ccy)
-            per_ccy[ccy] = round(net_base, 2)
-            total_resources += max(0.0, net_base)
-            total_obligations += max(0.0, -net_base)
+        snap = closing.get(base_label)
+        if snap is not None:
+            contributions[base_label] = round(snap.balance, 2)
+            total += snap.balance
 
-        aggregate_net = sum(per_ccy.values())
-        if aggregate_net < -0.01:
-            per_ccy["__total_resources"] = round(total_resources, 2)
-            per_ccy["__total_obligations"] = round(total_obligations, 2)
-            per_ccy["__shortfall"] = round(abs(aggregate_net), 2)
-            return per_ccy
-        return None
+        for ccy in self.foreign_ccys:
+            snap = closing.get(ccy)
+            if snap is None:
+                continue
+            converted = (snap.credit * self.cfg.fx_spot_bid(ccy)
+                         - snap.debit * self.cfg.fx_spot_ask(ccy))
+            if abs(converted) > 0.005:
+                contributions[ccy] = round(converted, 2)
+            total += converted
+
+        return total, contributions
 
     def solve(self, solver_name: Optional[str] = None,
               time_limit: int = 120) -> Result:
@@ -854,27 +863,6 @@ class CashOptimizer:
             )
 
         log.info("Building model ...")
-
-        shortfall_detail = self._check_solvency()
-        if shortfall_detail is not None:
-            shortfall = shortfall_detail.pop("__shortfall")
-            total_resources = shortfall_detail.pop("__total_resources")
-            total_obligations = shortfall_detail.pop("__total_obligations")
-            log.error(
-                "INSUFFICIENT FUNDS: aggregate shortfall of %.2f (base ccy). "
-                "Total resources: %.2f, total obligations: %.2f. "
-                "An external inflow is required.",
-                shortfall, total_resources, total_obligations,
-            )
-            self._solved = True
-            return Result(
-                status="Infeasible", total_cost=None, trades=[], balances=[],
-                reserves=[], reserve_attribution={},
-                pre_trade_ladder=self._build_pre_trade_ladder(),
-                cash_flows=self._build_cash_flow_entries(),
-                insufficient_funds=True, shortfall=shortfall,
-                shortfall_detail=shortfall_detail,
-            )
 
         prob = pulp.LpProblem("CashManagerPOC", pulp.LpMinimize)
         self._create_variables()
@@ -937,16 +925,18 @@ class CashOptimizer:
 
         if status == "Infeasible":
             log.error(
-                "Solver returned Infeasible -- the constraints cannot be "
-                "satisfied. This may indicate insufficient funds to clear "
-                "all debits within the horizon, or conflicting constraints."
+                "Solver returned Infeasible -- no plan satisfies the active "
+                "constraints. This is a constraint conflict, not a funding "
+                "shortfall: the model permits a base-currency overdraft, so a "
+                "lack of cash shows up as a negative terminal balance rather "
+                "than as infeasibility. Review the active constraint flags."
             )
             return Result(
                 status=status, total_cost=None, trades=[], balances=[],
                 reserves=[], reserve_attribution={},
                 pre_trade_ladder=self._build_pre_trade_ladder(),
                 cash_flows=self._build_cash_flow_entries(),
-                insufficient_funds=True, shortfall=None, shortfall_detail={},
+                insufficient_funds=False,
             )
         elif status not in ("Optimal",):
             log.warning("Non-optimal status '%s' -- results may be unreliable.", status)
@@ -1168,6 +1158,17 @@ class CashOptimizer:
             total_cost = objective.value()
         else:
             total_cost = pulp.value(self._prob.objective) if self._prob else None
+
+        terminal_base, terminal_detail = self._terminal_base_equivalent(balances)
+        short = terminal_base < -0.01
+        if short:
+            log.error(
+                "INSUFFICIENT FUNDS: with every foreign balance converted back "
+                "to base, the account closes at %.2f — a shortfall of %.2f. No "
+                "set of trades can cover every debit; an external inflow is "
+                "required.", terminal_base, -terminal_base,
+            )
+
         gap = None
         if lp_bound is not None and total_cost is not None:
             gap = (total_cost - lp_bound) / max(abs(total_cost), 1e-9)
@@ -1175,8 +1176,8 @@ class CashOptimizer:
             # files carry limited precision, so only a material shortfall is
             # evidence of anything.  Near zero the relative test is unstable,
             # so require an absolute shortfall as well.
-            shortfall = lp_bound - total_cost
-            if gap < -1e-4 and shortfall > max(abs(lp_bound) * 1e-4, 1e-3):
+            below_bound = lp_bound - total_cost
+            if gap < -1e-4 and below_bound > max(abs(lp_bound) * 1e-4, 1e-3):
                 log.warning(
                     "Returned objective %.4f is BELOW a valid lower bound "
                     "%.4f — the plan cannot be trusted.", total_cost, lp_bound)
@@ -1190,6 +1191,10 @@ class CashOptimizer:
             cash_flows=self._build_cash_flow_entries(),
             reference_value=(self._reference_value()
                              if self.cfg.value_trade_rates else None),
+            terminal_base_equivalent=terminal_base,
+            insufficient_funds=short,
+            shortfall=(-terminal_base if short else None),
+            shortfall_detail=terminal_detail,
             lp_bound=lp_bound, optimality_gap=gap,
             optimality_unproven=(
                 improved_from is not None

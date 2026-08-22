@@ -501,6 +501,61 @@ class TestSameDaySettlement(CostAssertions):
                         "four currencies over 20 days should not take minutes")
 
 
+class TestInsufficientFunds(CostAssertions):
+    """Insufficient funds means one thing only: with every foreign balance
+    converted back to base, the account still closes in debit.  An infeasible
+    model is a constraint conflict, never a funding shortfall — base
+    overdrafts are permitted, so a lack of cash shows up as a negative
+    closing balance instead."""
+
+    SHORT = ([("USD", 2, -100_000)], {"GBP": 0.0})
+
+    def test_a_real_shortfall_is_flagged(self):
+        r = solve(*self.SHORT)
+        self.assertTrue(r.insufficient_funds)
+        self.assertLess(r.terminal_base_equivalent, 0.0)
+        self.assertCostClose(r.shortfall, -r.terminal_base_equivalent)
+
+    def test_a_shortfall_still_returns_a_plan(self):
+        # The old gate refused before the model was built, so the user was
+        # told to raise cash without being told how much or when.
+        r = solve(*self.SHORT)
+        self.assertEqual(r.status, "Optimal")
+        self.assertTrue(r.trades, "a fundable plan should still be produced")
+
+    def test_ample_cash_is_not_flagged(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000})
+        self.assertFalse(r.insufficient_funds)
+        self.assertGreater(r.terminal_base_equivalent, 0.0)
+
+    def test_constraint_conflict_is_not_called_a_funding_shortfall(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000}, min_reserve=1.0)
+        self.assertEqual(r.status, "Infeasible")
+        self.assertFalse(r.insufficient_funds,
+                         "ample cash: this is a constraint conflict")
+        self.assertNotIn("INSUFFICIENT FUNDS", r.format_summary())
+        self.assertIn("NO FEASIBLE PLAN", r.format_summary())
+
+    def test_foreign_credit_offsets_a_base_debit(self):
+        # A base overdraft covered by a foreign holding is not a shortfall:
+        # the holding converts back and covers it.
+        r = solve([("GBP", 1, -500_000)], {"GBP": 100_000, "USD": 1_000_000})
+        self.assertFalse(r.insufficient_funds)
+        self.assertGreater(r.terminal_base_equivalent, 0.0)
+
+    def test_the_threshold_sits_where_the_balance_crosses_zero(self):
+        for opening, expected in [(80_000.0, False), (79_100.0, False),
+                                  (79_000.0, True), (78_000.0, True)]:
+            with self.subTest(opening=opening):
+                r = solve([("USD", 2, -100_000)], {"GBP": opening})
+                self.assertEqual(r.insufficient_funds, expected)
+
+    def test_closing_balance_accounts_for_every_currency(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 200_000, "EUR": 50_000})
+        total = sum(r.shortfall_detail.values())
+        self.assertCostClose(r.terminal_base_equivalent, total)
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""

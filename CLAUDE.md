@@ -117,9 +117,21 @@ which returns `None` for absent keys — much of the code branches on that.
   extraction so output shape stays stable.
 - `solve()` is single-shot: it raises on a second call, so build a fresh `CashOptimizer`
   (or call `mgr.solve_optimal()` again, which constructs one) to re-solve.
-- A pre-solve aggregate solvency check (`_check_solvency`) short-circuits to an
-  `Infeasible` `Result` with `insufficient_funds=True` and a per-currency shortfall
-  breakdown before the model is ever built.
+- **Insufficient funds is measured after solving, not before.**
+  `_terminal_base_equivalent()` takes the plan's closing balances, converts any
+  remaining foreign holding back to base at the rate it would be dealt at (credit at
+  bid, debit at ask), and adds it to the closing base balance. Negative means the
+  account genuinely cannot cover its obligations however the trades are arranged, and
+  `Result.insufficient_funds` is set — *with a plan still returned*, so the user can
+  see how much is needed and when. There was a pre-solve `_check_solvency` gate that
+  refused to build the model on an aggregate deficit; it has been removed, because the
+  model permits base overdrafts and an aggregate deficit is a financing question.
+- **An infeasible model is never a funding shortfall.** Because base overdrafts are
+  permitted, a lack of cash surfaces as a negative closing balance, never as
+  infeasibility. `Infeasible` therefore always means a constraint conflict, and is
+  reported as "NO FEASIBLE PLAN". Toggling one `ConstraintFlags` entry off and
+  re-solving identifies which constraint is binding — that sweep takes well under a
+  second and diagnosed every infeasibility found in the audit.
 
 ### Constraint toggles
 
