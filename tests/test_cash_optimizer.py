@@ -121,17 +121,38 @@ class TestSolverReliability(CostAssertions):
     """CBC returns provably sub-optimal plans on this model and labels them
     Optimal.  The verification pass has to catch and correct that."""
 
-    def test_known_cbc_failure_is_detected_and_corrected(self):
+    # The two scenarios that used to expose CBC returning a sub-optimal plan
+    # as "Optimal" no longer do: removing the same-day gate took out the
+    # sign-pin machinery that made the model hard to search.  That is not a
+    # fix for CBC — the defect is in the solver — so the verification stays
+    # as a safety net.  These tests assert it is wired and currently silent.
+
+    def test_historical_cbc_failures_now_solve_correctly(self):
+        # Was 34,733.58 against a true optimum of 32,003.10.
+        full = solve([("USD", 2, -40_000_000)], {"GBP": 250_000_000},
+                     solver="PULP_CBC_CMD")
+        quotes = {c: {k: v for k, v in q.items() if k in ("T0", "T2")}
+                  for c, q in Config().fx_quotes.items()}
+        restricted = solve([("USD", 2, -40_000_000)], {"GBP": 250_000_000},
+                           solver="PULP_CBC_CMD",
+                           tenors={"T0": 0, "T2": 2}, spot_tenor="T2",
+                           fx_quotes=quotes)
+        self.assertLessEqual(
+            full.total_cost, restricted.total_cost * (1 + REL) + 0.01,
+            "removing an option must not improve the reported optimum")
+
+    def test_verification_is_wired_and_reports_a_bound(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000})
+        self.assertIsNotNone(r.lp_bound)
+        self.assertIsNotNone(r.optimality_gap)
+        self.assertIsNotNone(r.solver_used)
+
+    def test_reported_cost_survives_the_verification_pass(self):
+        # Building a constraint from the objective mutates it in PuLP; if that
+        # leaks, the reported cost collapses to zero.
         r = solve([("USD", 2, -40_000_000)], {"GBP": 250_000_000},
                   solver="PULP_CBC_CMD")
-        self.assertEqual(r.status, "Optimal")
-        self.assertTrue(
-            r.optimality_unproven,
-            "CBC's sub-optimal plan should have been flagged")
-        self.assertIsNotNone(r.improved_from)
-        self.assertLess(
-            r.total_cost, r.improved_from,
-            "the adopted plan should be cheaper than the solver's first answer")
+        self.assertGreater(r.total_cost, 1.0)
 
     def test_verification_does_not_cry_wolf_on_ordinary_solves(self):
         # The check must only fire when a cheaper plan was actually produced.
@@ -146,13 +167,6 @@ class TestSolverReliability(CostAssertions):
                 self.assertFalse(
                     r.optimality_unproven,
                     "no cheaper plan exists here, so nothing should be flagged")
-
-    def test_reported_cost_survives_the_verification_pass(self):
-        # Building a constraint from the objective mutates it in PuLP; if that
-        # leaks, the reported cost collapses to zero.
-        r = solve([("USD", 2, -40_000_000)], {"GBP": 250_000_000},
-                  solver="PULP_CBC_CMD")
-        self.assertGreater(r.total_cost, 1.0)
 
     def test_disabling_verification_is_honoured(self):
         r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000},
@@ -177,10 +191,12 @@ class TestTradeRateValuation(CostAssertions):
         self.assertEqual(r.trades[0].direction, Direction.SELL)
 
     def test_without_the_fix_it_settles_too_early(self):
-        # Guards the guard: confirms the test above is actually exercising
-        # the new term rather than passing for unrelated reasons.
+        # Guards the guard: confirms the test above is actually exercising the
+        # new term rather than passing for unrelated reasons.  Blind to the
+        # rate, the objective takes the tenor with the least carry, which is
+        # same-day — the worst outcome on offer, and worth 2.07 bps.
         r = solve([], {"USD": 1_000_000}, value_trade_rates=False)
-        self.assertEqual(r.trades[0].tenor, "T1")
+        self.assertEqual(r.trades[0].tenor, "T0")
 
     def test_liquidates_even_with_the_terminal_sweep_off(self):
         flags = ConstraintFlags(terminal_sweep=False, no_carry_trade=False)
@@ -309,7 +325,7 @@ class TestGuardRails(CostAssertions):
 
     def test_speculation_stays_blocked_at_any_carry_differential(self):
         flags = ConstraintFlags(no_carry_trade=False, terminal_sweep=False,
-                                t0_debit_only=False, no_loop=False)
+                                no_loop=False)
         for usd_rate in [5.0, 50.0, 200.0]:
             with self.subTest(usd_rate=usd_rate):
                 r = solve([], {"GBP": 50_000_000, "USD": 1.0},
@@ -436,14 +452,58 @@ class TestKnownPlans(CostAssertions):
 # Known open findings — documented, not yet fixed
 # ─────────────────────────────────────────────────────────────
 
+class TestSameDaySettlement(CostAssertions):
+    """The same-day gate was removed: it made a payment due today infeasible,
+    dominated solve time, and could be gamed by selling a sliver of currency
+    to manufacture the overdraft it looked for."""
+
+    def test_payment_due_today_can_be_funded(self):
+        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000})
+        self.assertEqual(r.status, "Optimal", "F5: a payment due today")
+        self.assertEqual(plan_of(r), [("USD", 0, "T0", "BUY", 100_000.0)],
+                         "should cover it same-day")
+
+    def test_single_day_horizon_is_solvable(self):
+        r = solve([], {"GBP": 1_000_000, "USD": 100_000}, horizon=1)
+        self.assertEqual(r.status, "Optimal")
+        self.assertEqual(plan_of(r), [("USD", 0, "T0", "SELL", 100_000.0)])
+
+    def test_removal_did_not_change_other_plans(self):
+        # Every case that solved before must produce the identical plan.
+        for flows, opening, expected in [
+            ([("USD", 2, -100_000)], {"GBP": 5_000_000},
+             [("USD", 0, "T2", "BUY", 100_000.0)]),
+            ([("USD", 1, -100_000)], {"GBP": 500_000, "USD": 50_000},
+             [("USD", 0, "T1", "BUY", 50_000.0)]),
+            ([], {"USD": 1_000_000},
+             [("USD", 0, "T2", "SELL", 1_000_000.0)]),
+        ]:
+            with self.subTest(flows=flows):
+                self.assertEqual(plan_of(solve(flows, opening)), expected)
+
+    def test_large_multi_currency_models_solve_quickly(self):
+        # This shape used to exceed the 120s limit and return nothing.
+        import time
+        ccys = ["GBP", "USD", "EUR", "JPY", "CHF"]
+        quotes = {c: {t: FXTenorQuote(bid=0.7895 + 0.0001 * i,
+                                      ask=0.7905 + 0.0001 * i)
+                      for i, t in enumerate(["T0", "T1", "T2"])}
+                  for c in ccys[1:]}
+        flows = [(c, 2 + i, -100_000 * (i + 1)) for i, c in enumerate(ccys[1:])]
+        started = time.time()
+        r = solve(flows, {"GBP": 50_000_000}, horizon=20, currencies=ccys,
+                  fx_quotes=quotes,
+                  credit_carry_pa={c: 1.0 for c in ccys},
+                  debit_carry_pa={c: 5.0 for c in ccys})
+        elapsed = time.time() - started
+        self.assertEqual(r.status, "Optimal")
+        self.assertLess(elapsed, 30.0,
+                        "four currencies over 20 days should not take minutes")
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""
-
-    def test_f5_day_zero_payment_is_still_infeasible(self):
-        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000})
-        self.assertEqual(r.status, "Infeasible",
-                         "F5 fixed? update this test")
 
     def test_f7_minimum_reserve_still_cannot_be_enabled(self):
         r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000}, min_reserve=1.0)

@@ -55,10 +55,6 @@ class ConstraintFlags:
         Enforce ring-fenced balances for phasing accounts.
     reserve : bool
         Enforce minimum reserve requirements per (ccy, day).
-    t0_debit_only : bool
-        Allow T+0 trades only when the currency is in debit on that day,
-        preventing same-day trades that are not covering an immediate
-        overdraft.
     """
 
     terminal_sweep: bool = True
@@ -67,7 +63,6 @@ class ConstraintFlags:
     no_carry_trade: bool = True
     phasing: bool = True
     reserve: bool = True
-    t0_debit_only: bool = True
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -78,7 +73,6 @@ class ConstraintFlags:
             "no_carry_trade": self.no_carry_trade,
             "phasing": self.phasing,
             "reserve": self.reserve,
-            "t0_debit_only": self.t0_debit_only,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]
@@ -381,33 +375,6 @@ class Config:
         """Return the spot ask rate — conservative entry valuation."""
         spot = self.spot_tenor or "T2"
         return self.fx_quotes[ccy][spot].ask
-
-    # ── T+0 sign-pin threshold ─────────────────────────────
-    def t0_sign_pin_eps(self, ccy: str) -> float:
-        """Sign-pin threshold in *ccy* units worth ~0.01 base ccy.
-
-        Used by ``t0_debit_only`` to close the zero-balance loophole
-        (see :meth:`CashOptimizer._add_t0_debit_only_constraint`).
-
-        A currency-agnostic ``EPS = 0.01`` (audit F16) is broken for
-        JPY: 0.01 JPY ≈ 0.00006 USD, below quotable precision, and
-        the pin sits inside numerical noise. We instead scale the pin
-        so it is worth ~one cent of the base currency:
-
-            eps_c = max(0.01, 0.01 / fx_spot_mid(c))
-
-        For the base currency itself the threshold is 0.01 (its own
-        unit). Missing FX quotes fall back to 0.01.
-        """
-        if ccy == self.base_ccy:
-            return 0.01
-        try:
-            mid = self.fx_spot_mid(ccy)
-            if mid > 0:
-                return max(0.01, 0.01 / mid)
-        except (KeyError, AttributeError):
-            pass
-        return 0.01
 
     def validate(self) -> None:
         """Centralised validation — raises ``ValueError`` on bad config."""

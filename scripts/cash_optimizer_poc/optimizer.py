@@ -527,9 +527,7 @@ class CashOptimizer:
                     # No reachable shortfall, so no purchase is justifiable.
                     # Keep this an exact zero: a cap of "almost nothing"
                     # leaves the trade and tier binaries live for a day that
-                    # cannot trade, which presolve can no longer strip out,
-                    # and hands the solver a cheap way to nudge a balance
-                    # negative purely to open the T+0 gate.
+                    # cannot trade, which presolve can no longer strip out.
                     slack = 0.0
                 prob += (
                     pulp.lpSum(cum_buys) <= cap + slack,
@@ -648,139 +646,6 @@ class CashOptimizer:
                     "No-carry-trade buy block for %s: "
                     "%d buy variable(s) zeroed", ccy, n_blocked,
                 )
-
-    def _add_t0_debit_only_constraint(self, prob: pulp.LpProblem) -> None:
-        """Allow T+0 trades in currency ``X`` only when ``X`` itself was
-        carrying a debit *at the start* of day ``d`` — i.e. an overnight
-        debit brought into the day.
-
-        Business rule (per-currency, strict, revised 2026-08)
-        -----------------------------------------------------
-        The same-day gate is STRICTLY per-currency. If JPY is in debit
-        and EUR is in credit, the optimizer must NOT open a T+0 EUR
-        trade — only JPY may be covered T+0.
-
-        Coverage is permissive, not mandatory: if leaving the debit
-        uncovered (paying overnight debit carry) is cheaper than
-        closing it (paying the T+0 spread + commission), the LP is
-        free to do so.
-
-        Why "start-of-day", not "end-of-day"
-        ------------------------------------
-        A T+0 trade settles on the day it is placed. If the gate were
-        keyed on end-of-day ``bal[c,d]``, then a T+0 buy that
-        successfully clears a debit would push ``bal[c,d] = 0``, the
-        sign-pin would force ``z[c,d] = 1``, and the gate
-        ``act_buy <= 1 - z`` would forbid the very trade that was
-        clearing the debit — a chicken-and-egg infeasibility.
-
-        The economically meaningful trigger is "did we CARRY a debit
-        into this day?", which is:
-
-            d = 0:  opening_balance[c] < -eps(c)     (a constant)
-            d > 0:  bal[c, d-1] < -eps(c)            (previous end-of-day)
-
-        Implementation
-        --------------
-        For each active foreign currency ``c`` on each day ``d`` with
-        T+0 trade variables:
-
-            d == 0:
-                # opening is a build-time constant
-                gate_c_0 = 1 if opening[c] < -1e-9 else 0
-                act_buy[c, 0, T0]  <= gate_c_0
-                act_sell[c, 0, T0] <= gate_c_0
-
-            d > 0:
-                # gate on the previous day's sign var
-                bn[c, d-1] >= eps(c) * (1 - z[c, d-1])   # sign-pin
-                act_buy[c, d, T0]  <= 1 - z[c, d-1]
-                act_sell[c, d, T0] <= 1 - z[c, d-1]
-
-        where ``z[c, d-1] = 0`` iff ``c`` ended day d-1 in debit.
-
-        Sign-pin (per-ccy EPS)
-        ----------------------
-        The plain decomposition leaves ``z`` free when ``bal = 0``,
-        letting the LP fake a same-day debit. We therefore add a
-        per-currency sign pin on the previous day::
-
-            bn[c, d-1] >= eps(c) * (1 - z[c, d-1])
-
-        where ``eps(c) = max(0.01, 0.01 / fx_spot_mid(c))`` — a
-        threshold worth ~one cent of the base currency in ``c``'s
-        own units (see :meth:`Config.t0_sign_pin_eps`, audit F16).
-
-        Base currency
-        -------------
-        The base currency is intentionally OUT of the pin and gate.
-        It has no T+0 trade variables of its own; under this strict
-        reading its debit does not (any longer) unlock foreign T+0
-        trades; and pinning it triggered the audit-F2 Big-M / EPS
-        relaxation trap.
-        """
-        t0_tenor = None
-        for tenor, lag in self.cfg.tenors.items():
-            if lag == 0:
-                t0_tenor = tenor
-                break
-        if t0_tenor is None:
-            log.debug("t0_debit_only: no T0 tenor found — nothing to constrain")
-            return
-
-        n_pinned = 0
-        n_gated = 0
-        # Track which (ccy, day) sign-pins have already been added so
-        # we don't duplicate rows when a ccy has T0 vars on both d and d+1
-        # (each references the previous day's z).
-        pinned_prev: set = set()
-
-        for ccy in self.active_foreign_ccys:
-            eps = self.cfg.t0_sign_pin_eps(ccy)
-            opening = self.opening.get(ccy, 0.0)
-
-            for d in range(self.cfg.horizon_days):
-                if not self._has_trade_vars(ccy, d, t0_tenor):
-                    continue
-                act_b = self._v("act_buy", ccy, d, t0_tenor)
-                act_s = self._v("act_sell", ccy, d, t0_tenor)
-
-                if d == 0:
-                    # Gate on opening balance (a build-time constant).
-                    gate = 1 if opening < -1e-9 else 0
-                    if act_b is not None:
-                        prob += (act_b <= gate,
-                                 f"t0_debit_buy_{ccy}_{d}")
-                        n_gated += 1
-                    if act_s is not None:
-                        prob += (act_s <= gate,
-                                 f"t0_debit_sell_{ccy}_{d}")
-                        n_gated += 1
-                else:
-                    # Gate on the sign of yesterday's end-of-day balance.
-                    z_prev = self._v("bal_sign", ccy, d - 1)
-                    # Sign-pin bal[c, d-1] once per (ccy, d-1) — closes
-                    # the zero-balance loophole so z_prev = 0 truly means
-                    # bal[c, d-1] <= -eps(c).
-                    if (ccy, d - 1) not in pinned_prev:
-                        bn_prev = self._v("bal_neg", ccy, d - 1)
-                        prob += (bn_prev >= eps * (1 - z_prev),
-                                 f"t0_debit_pin_sign_{ccy}_{d - 1}")
-                        pinned_prev.add((ccy, d - 1))
-                        n_pinned += 1
-                    if act_b is not None:
-                        prob += (act_b <= 1 - z_prev,
-                                 f"t0_debit_buy_{ccy}_{d}")
-                        n_gated += 1
-                    if act_s is not None:
-                        prob += (act_s <= 1 - z_prev,
-                                 f"t0_debit_sell_{ccy}_{d}")
-                        n_gated += 1
-
-        log.info("t0_debit_only (per-ccy strict, prev-day gate): "
-                 "%d activation gate(s) added, "
-                 "%d prev-day sign-pin(s) added (foreign only, per-ccy eps)",
-                 n_gated, n_pinned)
 
     # ── Objective ──────────────────────────
 
@@ -1047,11 +912,6 @@ class CashOptimizer:
             self._add_no_carry_trade_constraint(prob)
         else:
             log.info("  SKIPPED: no-carry-trade constraints")
-        if flags.t0_debit_only:
-            self._add_t0_debit_only_constraint(prob)
-        else:
-            log.info("  SKIPPED: t0-debit-only constraints")
-
         prob += self._build_objective(), "TotalCost"
         self._prob = prob
 

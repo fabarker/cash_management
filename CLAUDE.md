@@ -125,15 +125,24 @@ which returns `None` for absent keys — much of the code branches on that.
 
 `ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which mutates the
 shared `Config`) switches off `terminal_sweep`, `no_loop`, `anti_speculative`,
-`no_carry_trade`, `phasing`, `reserve`, `t0_debit_only`. Balance evolution, balance
+`no_carry_trade`, `phasing`, `reserve`. Balance evolution, balance
 decomposition, activation linking, commission-tier linking and reserve attribution are
 structural and always applied.
 
-`_add_no_carry_trade_constraint` and `_add_t0_debit_only_constraint` carry long docstrings
-explaining their business rules (sweep deadline / monotonic drawdown / buy blocking; and the
-per-currency previous-day debit gate with its per-currency `eps` sign-pin). Read those before
-touching either — both encode specific fixes for infeasibility traps that a naive
-reformulation will reintroduce.
+`_add_no_carry_trade_constraint` carries a long docstring explaining its business rules
+(sweep deadline / monotonic drawdown / buy blocking). Read it before touching that
+constraint — it encodes specific fixes for infeasibility traps a naive reformulation
+will reintroduce.
+
+There was also a `t0_debit_only` gate, which permitted same-day dealing only in a
+currency already overdrawn at the start of the day. **It has been removed.** It made a
+payment due today infeasible, dominated solve time (four currencies over 20 days went
+from 19s to 0.4s without it; six over 30 days from a 120s timeout to 1.0s), and could be
+gamed by selling a sliver of currency purely to manufacture the overdraft it looked for.
+Removing it changed no other plan by a penny and did not reintroduce speculation — the
+anti-speculative and no-carry rules carry that. If same-day dealing needs restricting
+again, do it as a direct bound on the T0 trade variables rather than a gate keyed on the
+previous day's sign binary.
 
 ## Gotchas
 
