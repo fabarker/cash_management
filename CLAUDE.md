@@ -117,6 +117,13 @@ which returns `None` for absent keys — much of the code branches on that.
   extraction so output shape stays stable.
 - `solve()` is single-shot: it raises on a second call, so build a fresh `CashOptimizer`
   (or call `mgr.solve_optimal()` again, which constructs one) to re-solve.
+- **A non-optimal solver status raises, it does not return an empty result.**
+  Anything other than `Optimal` or `Infeasible` — a time limit, an unbounded model, a
+  solver error — raises `SolverFailure` (a `RuntimeError` subclass carrying `.status`,
+  `.solver` and `.time_limit`). It previously returned a `Result` with no trades, no
+  cost and no exception, which a caller reading `result.trades` could not distinguish
+  from "nothing worth doing". `Infeasible` still returns a `Result`, because that is an
+  informative outcome rather than a failure to solve.
 - **Insufficient funds is measured after solving, not before.**
   `_terminal_base_equivalent()` takes the plan's closing balances, converts any
   remaining foreign holding back to base at the rate it would be dealt at (credit at

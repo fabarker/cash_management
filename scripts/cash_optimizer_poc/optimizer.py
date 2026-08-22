@@ -27,6 +27,46 @@ from scripts.cash_optimizer_poc.result import Result
 log = logging.getLogger("cash_optimizer_poc")
 
 
+class SolverFailure(RuntimeError):
+    """The solver did not return a solved model.
+
+    Raised for any terminal status that is neither ``Optimal`` nor
+    ``Infeasible`` — a time limit, an unbounded model, or an internal solver
+    error.  Previously these returned an empty ``Result``: no trades, no
+    balances, no cost and no exception, which a caller reading
+    ``result.trades`` could not tell apart from "there was nothing worth
+    doing".  Failing loudly is the point.
+
+    Subclasses ``RuntimeError`` so existing handlers still catch it.
+
+    Attributes
+    ----------
+    status : str
+        The solver's terminal status, e.g. ``"Not Solved"``.
+    solver : str or None
+        Which solver produced it.
+    time_limit : int or None
+        The limit in force, which is the usual cause.
+    """
+
+    def __init__(self, status, solver=None, time_limit=None):
+        self.status = status
+        self.solver = solver
+        self.time_limit = time_limit
+        if status == "Not Solved":
+            limit = (f"The {time_limit}s time limit" if time_limit
+                     else "A time limit")
+            hint = (f"{limit} is the usual cause: raise time_limit, shorten "
+                    f"the horizon, or install HiGHS (pip install highspy), "
+                    f"which this model solves considerably faster.")
+        else:
+            hint = "Check the model configuration and the solver log."
+        super().__init__(
+            f"Solver returned {status!r} — the model was not solved to "
+            f"optimality, so there is no plan to report. {hint}"
+        )
+
+
 class CashOptimizer:
     """
     Builds and solves the cash management LP/MIP.
@@ -902,7 +942,13 @@ class CashOptimizer:
                 insufficient_funds=False,
             )
         elif status not in ("Optimal",):
-            log.warning("Non-optimal status '%s' -- results may be unreliable.", status)
+            log.error(
+                "Solver returned '%s' -- no plan can be reported. Returning an "
+                "empty result here would be indistinguishable from 'nothing to "
+                "do', so this raises instead.", status,
+            )
+            raise SolverFailure(status, solver=solver_name,
+                                time_limit=time_limit)
 
         improved_from = None
         objective = None
@@ -1042,12 +1088,11 @@ class CashOptimizer:
     def _extract_results(self, status: str, lp_bound=None, solver_used=None,
                          improved_from=None, objective=None) -> Result:
         if status not in ("Optimal",):
-            return Result(
-                status=status, total_cost=None, trades=[], balances=[],
-                pre_trade_ladder=self._build_pre_trade_ladder(),
-                cash_flows=self._build_cash_flow_entries(),
-                lp_bound=lp_bound, solver_used=solver_used,
-            )
+            # solve() handles Infeasible before reaching here and raises on
+            # every other non-optimal status, so this is unreachable from the
+            # public path.  Kept as a guard: there must be no route by which
+            # an empty Result is passed off as a plan.
+            raise SolverFailure(status, solver=solver_used)
 
         trades = []
         balances = []

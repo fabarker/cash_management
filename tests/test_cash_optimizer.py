@@ -26,7 +26,10 @@ from scripts.cash_optimizer_poc.models import (
     FXTenorQuote,
     PhasingPlan,
 )
-from scripts.cash_optimizer_poc.optimizer import CashOptimizer
+from scripts.cash_optimizer_poc.optimizer import (
+    CashOptimizer,
+    SolverFailure,
+)
 from scripts.cash_optimizer_poc.cash_manager import CashManager, ManualTrade
 
 REL = 1e-4  # cost comparisons: relative, to survive cross-solver precision
@@ -571,6 +574,76 @@ class TestInsufficientFunds(CostAssertions):
         r = solve([("USD", 2, -100_000)], {"GBP": 200_000, "EUR": 50_000})
         total = sum(r.shortfall_detail.values())
         self.assertCostClose(r.terminal_base_equivalent, total)
+
+
+class TestNonOptimalStatus(CostAssertions):
+    """A status that is neither Optimal nor Infeasible used to return an
+    empty Result — no trades, no cost, no exception — which a caller reading
+    result.trades could not tell apart from "nothing worth doing" (F16)."""
+
+    def test_non_optimal_status_raises(self):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        opt = CashOptimizer(cfg, cf, opening_balances={"GBP": 5_000_000})
+        opt.solve()
+        for status in ("Not Solved", "Undefined", "Unbounded"):
+            with self.subTest(status=status):
+                with self.assertRaises(SolverFailure):
+                    opt._extract_results(status)
+
+    def test_the_failure_carries_diagnostics(self):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        opt = CashOptimizer(cfg, cf, opening_balances={"GBP": 5_000_000})
+        opt.solve()
+        with self.assertRaises(SolverFailure) as ctx:
+            opt._extract_results("Not Solved", solver_used="PULP_CBC_CMD")
+        self.assertEqual(ctx.exception.status, "Not Solved")
+        self.assertEqual(ctx.exception.solver, "PULP_CBC_CMD")
+        self.assertIn("not solved to optimality", str(ctx.exception))
+
+    def test_it_is_catchable_as_a_runtime_error(self):
+        # Subclassing RuntimeError keeps existing handlers working.
+        self.assertTrue(issubclass(SolverFailure, RuntimeError))
+
+    def test_a_real_timeout_raises_rather_than_returning_nothing(self):
+        # Large enough not to finish inside the limit.
+        ccys = ["GBP", "USD", "EUR", "JPY", "CHF", "AUD", "CAD"]
+        quotes = {c: {t: FXTenorQuote(bid=0.7895 + 0.0001 * i,
+                                      ask=0.7905 + 0.0001 * i)
+                      for i, t in enumerate(["T0", "T1", "T2"])}
+                  for c in ccys[1:]}
+        cfg = Config(horizon_days=200, currencies=ccys, fx_quotes=quotes,
+                     verify_optimality=False,
+                     credit_carry_pa={c: 1.0 for c in ccys},
+                     debit_carry_pa={c: 5.0 for c in ccys})
+        cf = CashFlowSet(horizon_days=200)
+        for i, c in enumerate(ccys[1:]):
+            for day in range(2 + i, 190, 7):
+                cf.add(c, day, -100_000 * (i + 1))
+        opt = CashOptimizer(cfg, cf, opening_balances={"GBP": 500_000_000})
+        try:
+            result = opt.solve(time_limit=2)
+        except SolverFailure as exc:
+            self.assertEqual(exc.status, "Not Solved")
+            self.assertEqual(exc.time_limit, 2)
+            return
+        # If the solver got there in time, the point still stands: what must
+        # never happen is an empty result presented as a plan.
+        self.assertEqual(result.status, "Optimal")
+
+    def test_infeasible_still_returns_a_result(self):
+        # Infeasibility is an informative outcome, not a solver failure.
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        r = CashOptimizer(
+            cfg, cf, opening_balances={"GBP": 5_000_000, "EUR": 100_000},
+            phasing=[PhasingPlan("EUR", {3: 50_000})]).solve()
+        self.assertEqual(r.status, "Infeasible")
+        self.assertEqual(r.trades, [])
 
 
 class TestKnownOpenFindings(CostAssertions):
