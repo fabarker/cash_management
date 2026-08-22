@@ -9,8 +9,22 @@ cash flows per currency over a short day-indexed horizon, it solves an LP/MIP (P
 for the cheapest set of FX trades that clears every debit, then reports the plan as
 formatted terminal tables.
 
-There is no README, no test suite, no lint config, no packaging metadata, and no VCS
-(`git init` has not been run). The only third-party dependency is `pulp` (which bundles CBC).
+There is no README, no lint config and no packaging metadata. The only third-party
+dependency is `pulp` (which bundles CBC); `highspy` is optional but strongly
+preferred — see the solver note under Gotchas.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v    # from the repository root
+```
+
+37 cases, ~6 seconds. Each class maps to a finding from the model audit.
+`TestKnownOpenFindings` asserts behaviour that is still *broken on purpose*
+(F5, F7, F12, F17) so that fixing one fails loudly and prompts an update.
+`TestOptimizationInvariants` encodes properties any correct optimiser must
+satisfy — relaxing a constraint cannot raise the optimum, the objective cannot
+fall below the LP bound — which is how the original solver defect was caught.
 
 ## Running
 
@@ -123,12 +137,25 @@ reformulation will reintroduce.
 
 ## Gotchas
 
-- **Big-M / `max_trade`.** The default `Config.max_trade = 5e11` sets `big_m` to the same
-  magnitude and makes CBC return `Infeasible` on scenarios that are trivially feasible.
-  Verified: the example above solves as `Optimal` with `max_trade=10_000_000.0` and returns
-  `Infeasible` with the default. Always size `max_trade` to the scenario (roughly 2× total
-  absolute cash movement, with a floor) — the commented-out `from_cash_projections` does
-  exactly this and notes the same reason.
+- **Solver choice matters more than it should.** CBC 2.10.3 (bundled with PuLP)
+  returns provably sub-optimal plans on this model and labels them `Optimal` — it
+  has been observed finding the correct answer, discarding it, and reporting a
+  worse one while its own log still showed the better bound. No CBC option
+  recovers it. `solve()` prefers HiGHS when available and falls back to CBC, so
+  `pip install highspy` is worth doing. When only CBC is present the verification
+  pass usually recovers the better plan and sets `Result.optimality_unproven`.
+- **`max_trade` is a trade cap; `max_balance` is the balance ceiling.** These were
+  once the same constant, which made the default configuration unable to solve
+  anything. `Config.big_m` is now the trade-activation constant only, sized to
+  `min(max_trade, commission capacity)`. The per-currency balance ceiling is
+  derived from the scenario's own cash (`balance_headroom`, default 1.25×) unless
+  `max_balance` is set explicitly. A scenario whose own ladder breaches it raises
+  a `ValueError` naming the currency and day, rather than returning `Infeasible`.
+- **The objective is a cost, and `net_terminal_wealth` is the money.** The
+  objective measures total value lost to spreads, commission, carry, exposure and
+  any residual position. `Result.reference_value - total_cost` is exactly the base
+  currency the plan delivers. Keep new objective terms at spread scale: notional-
+  scale terms would swamp the relative threshold the optimality check relies on.
 - **`ManualTrade` and `CostBreakdown` are defined twice.** `cash_manager.py` imports both
   from `models.py` and then redefines them below the import, so the local definitions win.
   The `cash_manager` `CostBreakdown` carries extra `spread_cost` / `slippage_cost` fields
@@ -139,6 +166,11 @@ reformulation will reintroduce.
   A dict keyed on `b.ccy` will not match `cfg.base_ccy`.
 - **`utils.py` calls `logging.basicConfig` at import time**, so importing anything in the
   package configures root logging at INFO.
+- **The cost model is still written out four times** — the LP objective,
+  `CashManager._compute_cost()`, `Result._compute_balance_costs()` and
+  `Result._tenor_decomposition_row()`. Any change to the economics has to land in
+  all of them or the comparison tables stop reconciling. This remains the single
+  biggest hazard in the codebase.
 - **The after-cost ladder is display-only** — `Result.compute_after_cost_balances()` accrues
   per-currency interest and deducts commission on the settlement day, and does not feed back
   into the objective.
