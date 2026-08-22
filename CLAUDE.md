@@ -137,14 +137,24 @@ which returns `None` for absent keys — much of the code branches on that.
 
 `ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which mutates the
 shared `Config`) switches off `terminal_sweep`, `no_loop`, `anti_speculative`,
-`no_carry_trade`, `phasing`, `reserve`. Balance evolution, balance
-decomposition, activation linking, commission-tier linking and reserve attribution are
-structural and always applied.
+`no_carry_trade`, `phasing`. Balance evolution, balance decomposition, activation
+linking and commission-tier linking are structural and always applied.
 
 `_add_no_carry_trade_constraint` carries a long docstring explaining its business rules
 (sweep deadline / monotonic drawdown / buy blocking). Read it before touching that
 constraint — it encodes specific fixes for infeasibility traps a naive reformulation
 will reintroduce.
+
+There was also a reserve subsystem — `Config.min_reserve`, a `reserve` flag, and
+per-currency `reserve` / `res_outflows` / `res_batched` variables. **It has been deleted.**
+It could never be enabled (any positive `min_reserve` collided with the terminal sweep,
+which forces the last day's balance to zero), it compared a base-currency floor against a
+foreign-denominated balance, and with the floor at zero the variables were driven to zero
+by a tiny tie-break penalty — so the "RESERVE ATTRIBUTION" block printed zeros in every
+report it ever produced. If a minimum balance is wanted, add it as a direct floor on
+`bal_pos` and fold it into `_shortfall_profile`, the way the phasing ring-fence already
+is; a floor alone is infeasible, because to the anti-speculative cap a balance you must
+hold is currency you have no cash-flow need for.
 
 There was also a `t0_debit_only` gate, which permitted same-day dealing only in a
 currency already overdrawn at the start of the day. **It has been removed.** It made a

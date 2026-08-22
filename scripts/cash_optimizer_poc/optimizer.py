@@ -20,7 +20,6 @@ from scripts.cash_optimizer_poc.models import (
     Direction,
     FXTenorQuote,
     PhasingPlan,
-    ReserveSnapshot,
     Trade,
 )
 from scripts.cash_optimizer_poc.result import Result
@@ -43,12 +42,6 @@ class CashOptimizer:
         bal_pos — positive part of balance (credit)
         bal_neg — negative part of balance (debit)
 
-    Per (foreign_ccy, day) only:
-        reserve — pooled reserve held in base ccy
-
-    Reserve attribution variables (per foreign_ccy):
-        reserve_for_outflows
-        reserve_for_batched_sweeps
     """
 
     def __init__(
@@ -189,7 +182,6 @@ class CashOptimizer:
                 v[("bal_pos", ccy, d)] = pulp.LpVariable(f"balP_{ccy}_{d}", lowBound=0)
                 v[("bal_neg", ccy, d)] = pulp.LpVariable(f"balN_{ccy}_{d}", lowBound=0)
                 v[("bal_sign", ccy, d)] = pulp.LpVariable(f"balZ_{ccy}_{d}", cat="Binary")
-                v[("reserve", ccy, d)] = pulp.LpVariable(f"res_{ccy}_{d}", lowBound=0)
 
                 for tenor in tenors:
                     settle_day = d + self.cfg.tenors[tenor]
@@ -222,8 +214,6 @@ class CashOptimizer:
                         f"actS_{ccy}_{d}_{tenor}", cat="Binary",
                     )
 
-            v[("res_outflows", ccy)] = pulp.LpVariable(f"resOut_{ccy}", lowBound=0)
-            v[("res_batched", ccy)] = pulp.LpVariable(f"resBat_{ccy}", lowBound=0)
 
         self._vars = v
 
@@ -401,26 +391,6 @@ class CashOptimizer:
                 prob += (self._v("bal", ccy, last) >= 0, f"term_sweep_lower_{ccy}")
             else:
                 prob += (self._v("bal", ccy, last) == 0, f"term_sweep_{ccy}")
-
-    def _add_reserve_attribution(self, prob: pulp.LpProblem) -> None:
-        for ccy in self.active_foreign_ccys:
-            total_reserve = pulp.lpSum(
-                self._v("reserve", ccy, d) for d in range(self.cfg.horizon_days)
-            )
-            prob += (
-                total_reserve == self._v("res_outflows", ccy) + self._v("res_batched", ccy),
-                f"res_attrib_{ccy}",
-            )
-
-    def _add_reserve_constraints(self, prob: pulp.LpProblem) -> None:
-        min_res = self.cfg.min_reserve
-        for ccy in self.active_foreign_ccys:
-            for d in range(self.cfg.horizon_days):
-                res = self._v("reserve", ccy, d)
-                bp = self._v("bal_pos", ccy, d)
-                prob += (res <= bp, f"res_cap_{ccy}_{d}")
-                if min_res > 0:
-                    prob += (res >= min_res, f"res_min_{ccy}_{d}")
 
     def _add_phasing_constraints(self, prob: pulp.LpProblem) -> None:
         for ccy, plan in self.phasing.items():
@@ -686,7 +656,6 @@ class CashOptimizer:
                 if d >= fx_start:
                     obj += self.cfg.fx_exposure_bps_per_day / 1e4 * spot_mid * (bp + bn)
 
-                obj += self.cfg.reserve_tiebreak_penalty * self._v("reserve", ccy, d)
 
                 for tenor in self.cfg.tenors:
                     if not self._has_trade_vars(ccy, d, tenor):
@@ -874,7 +843,6 @@ class CashOptimizer:
         self._add_balance_decomposition(prob)
         self._add_activation_linking(prob)
         self._add_commission_tier_linking(prob)
-        self._add_reserve_attribution(prob)
 
         if flags.no_loop:
             self._add_no_loop_constraints(prob)
@@ -884,10 +852,6 @@ class CashOptimizer:
             self._add_terminal_sweep(prob)
         else:
             log.info("  SKIPPED: terminal sweep constraints")
-        if flags.reserve:
-            self._add_reserve_constraints(prob)
-        else:
-            log.info("  SKIPPED: reserve constraints")
         if flags.phasing:
             self._add_phasing_constraints(prob)
         else:
@@ -933,7 +897,6 @@ class CashOptimizer:
             )
             return Result(
                 status=status, total_cost=None, trades=[], balances=[],
-                reserves=[], reserve_attribution={},
                 pre_trade_ladder=self._build_pre_trade_ladder(),
                 cash_flows=self._build_cash_flow_entries(),
                 insufficient_funds=False,
@@ -1081,7 +1044,6 @@ class CashOptimizer:
         if status not in ("Optimal",):
             return Result(
                 status=status, total_cost=None, trades=[], balances=[],
-                reserves=[], reserve_attribution={},
                 pre_trade_ladder=self._build_pre_trade_ladder(),
                 cash_flows=self._build_cash_flow_entries(),
                 lp_bound=lp_bound, solver_used=solver_used,
@@ -1089,8 +1051,6 @@ class CashOptimizer:
 
         trades = []
         balances = []
-        reserves = []
-        reserve_attrib = {}
         base = self.cfg.base_ccy
 
         for d in range(self.cfg.horizon_days):
@@ -1104,21 +1064,13 @@ class CashOptimizer:
 
         for ccy in self.foreign_ccys:
             if ccy in self.active_foreign_ccys:
-                reserve_attrib[ccy] = {
-                    "reserve_for_outflows": self._safe_value(self._v("res_outflows", ccy)),
-                    "reserve_for_batched_sweeps": self._safe_value(self._v("res_batched", ccy)),
-                }
                 for d in range(self.cfg.horizon_days):
                     bal_val = self._safe_value(self._v("bal", ccy, d))
                     bal_p = self._safe_value(self._v("bal_pos", ccy, d))
                     bal_n = self._safe_value(self._v("bal_neg", ccy, d))
-                    res_val = self._safe_value(self._v("reserve", ccy, d))
                     balances.append(BalanceSnapshot(
                         ccy=ccy, day=d, balance=round(bal_val, 2),
                         credit=round(bal_p, 2), debit=round(bal_n, 2),
-                    ))
-                    reserves.append(ReserveSnapshot(
-                        ccy=ccy, day=d, reserve_base_ccy=round(res_val, 2),
                     ))
                     for tenor in self.cfg.tenors:
                         if not self._has_trade_vars(ccy, d, tenor):
@@ -1145,14 +1097,10 @@ class CashOptimizer:
                                 settle_day=settle,
                             ))
             else:
-                reserve_attrib[ccy] = {
-                    "reserve_for_outflows": 0.0, "reserve_for_batched_sweeps": 0.0,
-                }
                 for d in range(self.cfg.horizon_days):
                     balances.append(BalanceSnapshot(
                         ccy=ccy, day=d, balance=0.0, credit=0.0, debit=0.0,
                     ))
-                    reserves.append(ReserveSnapshot(ccy=ccy, day=d, reserve_base_ccy=0.0))
 
         if objective is not None:
             total_cost = objective.value()
@@ -1185,8 +1133,7 @@ class CashOptimizer:
         return Result(
             status=status,
             total_cost=total_cost,
-            trades=trades, balances=balances, reserves=reserves,
-            reserve_attribution=reserve_attrib,
+            trades=trades, balances=balances,
             pre_trade_ladder=self._build_pre_trade_ladder(),
             cash_flows=self._build_cash_flow_entries(),
             reference_value=(self._reference_value()

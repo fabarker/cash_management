@@ -30,10 +30,10 @@ class ConstraintFlags:
     """
     Toggle individual optimizer constraints on or off.
 
-    All flags default to ``True`` (active) for backward compatibility.
-    Structural constraints (balance evolution, balance decomposition,
-    activation linking, reserve attribution) are always active — they
-    define the model mechanics and cannot be disabled.
+    All flags default to ``True`` (active).  Structural constraints
+    (balance evolution, balance decomposition, activation linking,
+    commission-tier linking) are always active — they define the model
+    mechanics and cannot be disabled.
 
     Attributes
     ----------
@@ -53,8 +53,6 @@ class ConstraintFlags:
         foreign currency purely for yield (carry-trade behaviour).
     phasing : bool
         Enforce ring-fenced balances for phasing accounts.
-    reserve : bool
-        Enforce minimum reserve requirements per (ccy, day).
     """
 
     terminal_sweep: bool = True
@@ -62,7 +60,6 @@ class ConstraintFlags:
     anti_speculative: bool = True
     no_carry_trade: bool = True
     phasing: bool = True
-    reserve: bool = True
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -72,7 +69,6 @@ class ConstraintFlags:
             "anti_speculative": self.anti_speculative,
             "no_carry_trade": self.no_carry_trade,
             "phasing": self.phasing,
-            "reserve": self.reserve,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]
@@ -319,12 +315,6 @@ class Config:
 
     # How many improvement rounds to attempt.  Each costs one extra solve.
     optimality_passes: int = 2
-
-    # Tiny penalty to force reserve to minimum
-    reserve_tiebreak_penalty: float = 1e-8
-
-    # Minimum reserve in base ccy
-    min_reserve: float = 0.0
 
     # Constraint toggles
     constraints: ConstraintFlags = field(default_factory=ConstraintFlags)
@@ -577,14 +567,6 @@ class BalanceSnapshot:
     balance: float
     credit: float
     debit: float
-
-
-@dataclass
-class ReserveSnapshot:
-    """End-of-day reserve for one (ccy, day)."""
-    ccy: str
-    day: int
-    reserve_base_ccy: float
 
 
 @dataclass

@@ -15,7 +15,6 @@ from scripts.cash_optimizer_poc.models import (
     CashFlowEntry,
     CashLadderEntry,
     Config,
-    ReserveSnapshot,
     Trade,
 )
 from scripts.cash_optimizer_poc.utils import (
@@ -35,8 +34,6 @@ class Result:
     total_cost: Optional[float]
     trades: List[Trade]
     balances: List[BalanceSnapshot]
-    reserves: List[ReserveSnapshot]
-    reserve_attribution: Dict[str, dict]
     pre_trade_ladder: List[CashLadderEntry] = field(default_factory=list)
     cash_flows: List[CashFlowEntry] = field(default_factory=list)
 
@@ -92,7 +89,6 @@ class Result:
           3. Projected Cash Flows
           4. Recommended Trades
           5. Cash Ladder AFTER Trades (optimized balances)
-          6. Reserve Attribution
         """
         lines: List[str] = []
         w = 70
@@ -264,22 +260,6 @@ class Result:
         lines.append("  CASH LADDER — AFTER TRADES (optimized)")
         lines.append(f"  {'─' * (w - 4)}")
         lines.extend(format_balances_pivoted(self.balances))
-
-        # ── 5. Reserve Attribution ──
-        if self.reserve_attribution:
-            lines.append(f"\n  {'─' * (w - 4)}")
-            lines.append("  RESERVE ATTRIBUTION")
-            lines.append(f"  {'─' * (w - 4)}")
-            for ccy, attr in self.reserve_attribution.items():
-                lines.append(f"  {ccy}:")
-                lines.append(
-                    f"    reserve_for_outflows       : "
-                    f"{attr['reserve_for_outflows']:>14,.2f}"
-                )
-                lines.append(
-                    f"    reserve_for_batched_sweeps : "
-                    f"{attr['reserve_for_batched_sweeps']:>14,.2f}"
-                )
 
         lines.append(f"\n{'=' * w}\n")
         return "\n".join(lines)

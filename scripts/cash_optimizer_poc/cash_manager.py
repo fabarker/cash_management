@@ -293,8 +293,6 @@ class ManualResult:
             total_cost=self.total_cost,
             trades=self.trades,
             balances=self.balances,
-            reserves=[],
-            reserve_attribution={},
             pre_trade_ladder=self.pre_trade_ladder,
             cash_flows=self.cash_flows,
         )
