@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls *)",
+      "Bash(~/virtual-environments/.venv/bin/python -c ' *)",
+      "Bash(~/virtual-environments/.venv/bin/python *)",
+      "Bash(PYTHONPATH=/Users/francisbarker/repo/cash_optmization ~/virtual-environments/.venv/bin/python *)",
+      "Bash(PYTHONPATH=. ~/virtual-environments/.venv/bin/python *)",
+      "Bash(python3 -)",
+      "Artifact"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Solver scratch files
+*.lp
+*.mps
+*.sol
