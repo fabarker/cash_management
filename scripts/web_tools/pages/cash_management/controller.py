@@ -165,60 +165,53 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
     @staticmethod
     def _rate_tip(kind: str, ccy: str, pa: float,
                   bps_per_day: Any, basis: Any) -> str:
-        """Hover tile turning an annual rate into a daily one.
+        """Tooltip body turning an annual rate into a daily one.
 
         The day count is part of the answer, not a footnote: sterling
-        accrues on 365 and the dollar on 360, so two rates that look a
-        quarter of a point apart are not a quarter of a point apart per day.
+        accrues on 365 and the dollar on 360, so two rates a quarter of a
+        point apart are not a quarter of a point apart per day.
         """
         if bps_per_day is None or basis is None:
             return ''
         return (
-            f'<span class="rate-tip">'
-            f'<span class="tip-head">{escape(ccy)} {escape(kind.lower())} carry</span>'
+            f'<b>{escape(ccy)} {escape(kind.lower())} carry</b><br>'
             f'{pa:.2f}% p.a. &divide; {basis} (ACT/{basis}) &times; 10,000<br>'
             f'= <b>{bps_per_day:.4f} bps/day</b>'
-            f'</span>'
         )
 
     @staticmethod
     def _tenor_tip(ccy: str, tenor: str, quotes: Dict[str, Any],
-                   lags: Dict[str, int], base_ccy: str) -> str:
-        """Hover tile showing the carry a forward quote has priced in.
+                   lags: Dict[str, int], base_ccy: str,
+                   spot_tenor: str) -> str:
+        """Tooltip body showing the carry a forward quote has priced in.
 
-        Forward points are the interest differential wearing a different
-        hat: a currency yielding more than the base trades at a discount,
-        and the discount per day is the differential per day.  Showing it in
-        bps/day makes that legible next to the credit column, which is in
-        the same unit.
+        Measured against the spot tenor, so spot is the reference and every
+        other leg is quoted as points away from it.  Forward points are the
+        interest differential wearing a different hat: a currency yielding
+        more than the base trades at a discount, and the discount per day
+        IS the differential per day.  Reporting it in bps/day puts it in
+        the same unit as the credit column beside it, where the two can be
+        read against one another.
         """
-        lag = lags.get(tenor)
-        if lag is None or not quotes:
+        lag, spot_lag = lags.get(tenor), lags.get(spot_tenor)
+        own_q, spot_q = quotes.get(tenor), quotes.get(spot_tenor)
+        if lag is None or spot_lag is None or own_q is None or spot_q is None:
             return ''
-        ref = min(lags, key=lambda t: lags[t])          # shortest tenor
-        ref_q, own_q = quotes.get(ref), quotes.get(tenor)
-        if ref_q is None or own_q is None:
-            return ''
-        ref_lag = lags[ref]
-        head = f'<span class="tip-head">{escape(ccy)} {escape(tenor)} forward</span>'
-        if lag == ref_lag:
-            return (
-                f'<span class="rate-tip">{head}'
-                f'Nearest leg &mdash; the points on the other<br>'
-                f'tenors are measured from here.</span>'
-            )
-        days = lag - ref_lag
-        pts = own_q.mid - ref_q.mid
-        bpd = pts / ref_q.mid * 10_000 / days
-        lean = ('discount' if pts < 0 else 'premium')
-        who = (f'{escape(ccy)} out-yields {escape(base_ccy)}' if pts < 0
+        head = f'<b>{escape(ccy)} {escape(tenor)}</b>'
+        if lag == spot_lag:
+            return (f'{head} &mdash; spot<br>'
+                    f'The reference every other leg is<br>measured against.')
+        days = lag - spot_lag
+        pts = own_q.mid - spot_q.mid
+        bpd = pts / spot_q.mid * 10_000 / days
+        lean = 'discount' if bpd < 0 else 'premium'
+        who = (f'{escape(ccy)} out-yields {escape(base_ccy)}' if bpd < 0
                else f'{escape(base_ccy)} out-yields {escape(ccy)}')
         return (
-            f'<span class="rate-tip">{head}'
-            f'{own_q.mid:.6f} &minus; {ref_q.mid:.6f} = {pts:+.6f} over {days}d<br>'
+            f'{head} vs {escape(spot_tenor)} spot, {days:+d} day(s)<br>'
+            f'{own_q.mid:.6f} &minus; {spot_q.mid:.6f} = {pts:+.6f}<br>'
             f'= <b>{bpd:+.4f} bps/day</b> &mdash; a forward {lean}<br>'
-            f'{who}, so the rate is priced to offset it.'
-            f'</span>'
+            f'{who}, so the rate offsets it.'
         )
 
     def _populate_rates_table(self, info: Dict[str, Any]) -> None:
@@ -239,6 +232,7 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         debit_bpd = info.get('debit_bps_per_day', {})
         basis = info.get('day_count_basis', {})
         lags = info.get('tenors', {})
+        spot_tenor = info.get('spot_tenor', '')
 
         # Build a unified currency list, base first
         all_ccys: list = []
@@ -268,55 +262,63 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                     all_tenors.append(t)
         all_tenors.sort()
 
+        def cell(tag: str, classes: str, text: str, tip: str = '') -> None:
+            """One table cell, with an optional NiceGUI tooltip.
+
+            This table used to be a single block of raw HTML, which gave
+            perfect column alignment and left nothing for a tooltip to
+            attach to.  It is built from elements now; the classes, and so
+            the alignment, are unchanged.
+            """
+            with ui.element(tag).classes(classes):
+                ui.html(text, sanitize=False, tag='span')
+                if tip:
+                    with ui.tooltip().classes('rate-tip-body'):
+                        ui.html(tip, sanitize=False, tag='div')
+
         with self.refs.fx_quotes_container:
+            with ui.element('table').classes('rates-table'):
+                with ui.element('thead'):
+                    with ui.element('tr'):
+                        cell('th', 'rates-th rates-th-label', '')
+                        for tenor in all_tenors:
+                            cell('th', 'rates-th', escape(tenor))
+                        cell('th', 'rates-th', 'Credit (p.a.)')
+                        cell('th', 'rates-th', 'Debit (p.a.)')
 
-            # Build a single borderless HTML table for perfect row alignment
-            # Columns: CCY | T0 | T1 | T2 | Credit | Debit
-            tenor_ths = ''.join(
-                f'<th class="rates-th">{t}</th>' for t in all_tenors
-            )
-            header = (
-                f'<tr>'
-                f'<th class="rates-th rates-th-label"></th>'
-                f'{tenor_ths}'
-                f'<th class="rates-th">Credit (p.a.)</th>'
-                f'<th class="rates-th">Debit (p.a.)</th>'
-                f'</tr>'
-            )
-
-            body = ''
-            for ccy in all_ccys:
-                is_base = ccy.upper() == base_ccy.upper()
-
-                # FX mid cells
-                fx_cells = ''
-                for tenor in all_tenors:
-                    if is_base:
-                        fx_cells += '<td class="rates-td rates-muted">&ndash;</td>'
-                    else:
+                with ui.element('tbody'):
+                    for ccy in all_ccys:
+                        is_base = ccy.upper() == base_ccy.upper()
                         ccy_tenors = fx_quotes.get(ccy, {})
-                        quote = ccy_tenors.get(tenor)
-                        if quote and quote.mid is not None:
-                            truncated = int(quote.mid * 10000) / 10000
-                            fx_cells += f'<td class="rates-td">{truncated:.4f}</td>'
-                        else:
-                            fx_cells += '<td class="rates-td rates-muted">&ndash;</td>'
+                        with ui.element('tr'):
+                            cell('td', 'rates-td rates-label', escape(ccy))
 
-                cr = credit.get(ccy)
-                cr_cell = f'<td class="rates-td">{cr:.2f}%</td>' if cr is not None else '<td class="rates-td rates-muted">&ndash;</td>'
-                dr = debit.get(ccy)
-                dr_cell = f'<td class="rates-td">{dr:.2f}%</td>' if dr is not None else '<td class="rates-td rates-muted">&ndash;</td>'
+                            for tenor in all_tenors:
+                                quote = None if is_base else ccy_tenors.get(tenor)
+                                if quote is None or quote.mid is None:
+                                    cell('td', 'rates-td rates-muted', '&ndash;')
+                                    continue
+                                truncated = int(quote.mid * 10000) / 10000
+                                cell('td', 'rates-td has-tip', f'{truncated:.4f}',
+                                     self._tenor_tip(ccy, tenor, ccy_tenors, lags,
+                                                     base_ccy, spot_tenor))
 
-                body += f'<tr><td class="rates-td rates-label">{ccy}</td>{fx_cells}{cr_cell}{dr_cell}</tr>'
-
-            html = (
-                f'<table class="rates-table">'
-                f'<thead>{header}</thead>'
-                f'<tbody>{body}</tbody>'
-                f'</table>'
-            )
-            ui.html(html, sanitize=False)
-
+                            cr = credit.get(ccy)
+                            if cr is None:
+                                cell('td', 'rates-td rates-muted', '&ndash;')
+                            else:
+                                cell('td', 'rates-td has-tip', f'{cr:.2f}%',
+                                     self._rate_tip('Credit', ccy, cr,
+                                                    credit_bpd.get(ccy),
+                                                    basis.get(ccy)))
+                            dr = debit.get(ccy)
+                            if dr is None:
+                                cell('td', 'rates-td rates-muted', '&ndash;')
+                            else:
+                                cell('td', 'rates-td has-tip', f'{dr:.2f}%',
+                                     self._rate_tip('Debit', ccy, dr,
+                                                    debit_bpd.get(ccy),
+                                                    basis.get(ccy)))
 
 
     def _populate_commission_section(

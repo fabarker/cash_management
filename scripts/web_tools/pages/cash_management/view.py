@@ -84,53 +84,26 @@ def build_view() -> CashManagementRefs:
 
 
         /* ─── Info list items (FX quotes, rates — same style as commission tiers) ─── */
-        /* Hover tile on a rate cell.  Pure CSS: the table is injected as
-           raw HTML, so there is no element to attach a NiceGUI tooltip to. */
+        /* Cells that carry a tooltip: hint it before the cursor lands. */
         .rates-td.has-tip, .rates-th.has-tip {
-            position: relative;
             cursor: help;
             text-decoration: underline dotted rgba(31, 56, 100, 0.45);
             text-underline-offset: 3px;
         }
-        .rate-tip {
-            visibility: hidden;
-            opacity: 0;
-            position: absolute;
-            bottom: 130%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #1F3864;
-            color: #ffffff;
-            padding: 9px 12px;
-            border-radius: 6px;
-            font-size: 11.5px;
-            line-height: 1.55;
-            font-weight: 400;
-            text-align: left;
-            white-space: nowrap;
-            text-decoration: none;
+        /* The tooltip itself is a Quasar q-tooltip, which defaults to a
+           narrow one-line chip; these give it room for the arithmetic. */
+        .rate-tip-body {
+            font-size: 11.5px !important;
+            line-height: 1.6 !important;
+            background: #1F3864 !important;
+            color: #ffffff !important;
+            padding: 9px 12px !important;
+            border-radius: 6px !important;
+            max-width: none !important;
+            white-space: nowrap !important;
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
-            z-index: 60;
-            transition: opacity 0.12s ease;
-            pointer-events: none;
         }
-        .rate-tip::after {
-            content: "";
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border: 5px solid transparent;
-            border-top-color: #1F3864;
-        }
-        .rates-td.has-tip:hover .rate-tip,
-        .rates-th.has-tip:hover .rate-tip { visibility: visible; opacity: 1; }
-        .rate-tip .tip-head {
-            display: block;
-            font-weight: 700;
-            margin-bottom: 3px;
-            color: #cfe0ff;
-        }
+        .rate-tip-body b { color: #cfe0ff; font-weight: 700; }
 
         .rates-table {
             border-collapse: collapse;
