@@ -1,9 +1,12 @@
 from nicegui import ui, app
 from pathlib import Path
 
-from pmg_core.apps.pmg_web_tools.components.header_common import build_clock, build_user_name, build_tools_menu, load_wordmark_svg
+from scripts.web_tools.components.header_common import build_clock, build_user_name, build_tools_menu, load_wordmark_svg
 
-WORDMARK_SVG = (Path(__file__).resolve().parent.parent / 'assets' / 'goldman_wordmark.svg').read_text(encoding='utf-8')
+# Read through the shared loader rather than directly: this runs at import
+# time, so a missing file here breaks importing the module at all, not just
+# rendering the page.
+WORDMARK_SVG = load_wordmark_svg()
 
 def build_header_landing() -> None:
     display_name = app.storage.user.get('display_name', '')

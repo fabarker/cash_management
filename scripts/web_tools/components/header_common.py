@@ -6,21 +6,33 @@ from pathlib import Path
 
 from nicegui import ui, app
 
-from pmg_core.apps.pmg_web_tools.session_context import remove_session
-
 _ASSETS_DIR = Path(__file__).resolve().parent.parent / 'assets'
 
 
-def load_wordmark_svg() -> str:
-    return (_ASSETS_DIR / 'goldman_wordmark.svg').read_text(encoding='utf-8')
+#: Drawn only when the real wordmark is absent, so a missing brand asset
+#: degrades to a plain caption instead of a 500 on every page.
+_FALLBACK_WORDMARK = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 24" height="24" '
+    'role="img" aria-label="PMG Web Tools">'
+    '<text x="0" y="17" fill="currentColor" font-size="15" letter-spacing="1.5" '
+    'font-family="Helvetica, Arial, sans-serif">PMG</text></svg>'
+)
 
-def _logout() -> None:
-    """Clear auth state, remove live session objects, and redirect to login."""
-    remove_session()
-    app.storage.user['authenticated'] = False
-    app.storage.user.pop('username', None)
-    app.storage.user.pop('display_name', None)
-    ui.navigate.to('/login')
+
+def load_wordmark_svg() -> str:
+    """Return the header wordmark, or a plain caption if it is not present.
+
+    The brand assets are not in this repository.  Missing ones must not take
+    the page down with them: the wordmark is decoration, and a 500 on every
+    route because a logo is absent is a worse failure than an unbranded
+    header.  Drop the real file in at ``web_tools/assets/`` and it is picked
+    up with no code change.
+    """
+    path = _ASSETS_DIR / 'goldman_wordmark.svg'
+    try:
+        return path.read_text(encoding='utf-8')
+    except OSError:
+        return _FALLBACK_WORDMARK
 
 def build_tools_menu(results_label: ui.label) -> None:
     with ui.menu().classes('font-gs-regular'):
@@ -30,7 +42,6 @@ def build_tools_menu(results_label: ui.label) -> None:
         ui.menu_item('Trade Check', on_click=lambda: ui.navigate.to('/trade-check'))
         ui.menu_item('Cash Management', on_click=lambda: ui.navigate.to('/cash-management'))
         ui.separator()
-        ui.menu_item('Logout', on_click=lambda: _logout())
 
 def build_clock() -> None:
     time_label = ui.label(datetime.now().strftime('%Y-%m-%d %H:%M:%S')).classes('header-clock text-white').style('font-size: large;')

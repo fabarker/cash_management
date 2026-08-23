@@ -45,10 +45,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         # Pending edit coordinates for the edit dialog
         self._edit_row_idx: int = -1
         self._edit_field: str = ''
-        # Guard so programmatic set_value() on the t0_debit_only switch
+        # Guard so programmatic set_value() on the constraint switch
         # (e.g. while syncing from config on load) does not re-enter the
         # change handler and re-trigger UI updates.
-        self._suppress_t0_switch_event: bool = False
+        self._suppress_switch_event: bool = False
 
     # ================================================================
     # UI update helpers
@@ -116,13 +116,13 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         # the constraints section.
         mgr = self.state.cash_manager
         if mgr is not None:
-            current = bool(getattr(mgr.config.constraints, 't0_debit_only', True))
+            current = bool(getattr(mgr.config.constraints, 'holding_ceiling', True))
             # set_value triggers on_value_change; use a guarded write
-            self._suppress_t0_switch_event = True
+            self._suppress_switch_event = True
             try:
-                self.refs.t0_debit_only_switch.set_value(current)
+                self.refs.holding_ceiling_switch.set_value(current)
             finally:
-                self._suppress_t0_switch_event = False
+                self._suppress_switch_event = False
         self.refs.constraints_section.classes(remove='hidden')
 
         self.refs.info_panel.classes(remove='hidden')
@@ -543,6 +543,8 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             ('Debit carry (overdraft)', costs.get('debit_carry', 0.0)),
             ('FX exposure penalty', costs.get('fx_exposure', 0.0)),
             ('Commission', costs.get('commission', 0.0)),
+            ('FX spread paid', costs.get('spread', 0.0)),
+            ('Terminal unwind', costs.get('terminal_unwind', 0.0)),
         ]
 
         rows_html = ''
@@ -562,6 +564,22 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             )
 
         total = costs.get('total', 0.0)
+
+        # The rows above must reconcile to the total.  They have not always:
+        # two components were missing and the table silently understated
+        # every plan by the spread.  Say so rather than print a sum that
+        # does not add up.
+        residual = total - sum(v for _, v in components)
+        if abs(residual) > 0.0005:
+            rows_html += (
+                f'<div class="cost-row">'
+                f'<div style="color: #b26a00; flex: 1; min-width: 250px;">'
+                f'Unattributed &mdash; breakdown does not reconcile</div>'
+                f'<div style="font-variant-numeric: tabular-nums; min-width: 120px; '
+                f'text-align: right; color: #b26a00;">{residual:,.4f}</div>'
+                f'</div>'
+            )
+
         total_color = '#2e7d32' if total < -0.005 else '#c62828' if total > 0.005 else '#1F3864'
         rows_html += (
             f'<div class="cost-row total">'
@@ -775,13 +793,24 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
     # Constraint toggle handlers
     # ================================================================
 
-    def _on_t0_debit_only_change(self, e) -> None:
-        """Flip the ``t0_debit_only`` constraint on the loaded CashManager.
+    def _on_holding_ceiling_change(self, e) -> None:
+        """Flip the ``holding_ceiling`` constraint on the loaded CashManager.
 
-        Invalidates any cached optimal result and hides stale results so
-        the user knows they need to re-run "Get Suggested Trades".
+        This switch used to target ``t0_debit_only``, a constraint that has
+        since been removed from the model.  ``ConstraintFlags`` is not
+        frozen, so setting it was accepted silently and did nothing at all
+        — the switch moved, the plan never changed.
+
+        ``holding_ceiling`` is the anti-speculation policy: it caps what may
+        be held in each currency at the funding the near-term ladder can
+        justify.  Turning it off lets the optimiser hold foreign currency
+        purely for the interest differential, which is worth showing a user
+        precisely because the cost usually *falls* when they do.
+
+        Invalidates any cached optimal result and hides stale output so it
+        is clear the plan needs re-running.
         """
-        if self._suppress_t0_switch_event:
+        if self._suppress_switch_event:
             return
 
         mgr = self.state.cash_manager
@@ -789,7 +818,7 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             return
 
         new_value = bool(e.value)
-        mgr.config.constraints.t0_debit_only = new_value
+        mgr.config.constraints.holding_ceiling = new_value
         # Invalidate cached optimizer output
         if hasattr(mgr, '_optimal_result'):
             mgr._optimal_result = None
@@ -797,7 +826,7 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.results_section.classes(add='hidden')
 
         ui.notify(
-            f'T0-debit-only constraint {"ON" if new_value else "OFF"}. '
+            f'Speculative-holding limit {"ON" if new_value else "OFF"}. '
             f'Re-run "Get Suggested Trades" to apply.',
             type='info', position='top',
         )
@@ -828,7 +857,7 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.add_cashflow_amount_input.on('keydown.enter', self._on_add_cashflow_save)
 
         # Constraint toggles
-        self.refs.t0_debit_only_switch.on_value_change(self._on_t0_debit_only_change)
+        self.refs.holding_ceiling_switch.on_value_change(self._on_holding_ceiling_change)
 
         # Edit dialog — save button and Enter key on input
         self.refs.edit_dialog_save_btn.on_click(self._on_edit_save)

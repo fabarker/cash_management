@@ -6,8 +6,11 @@ Controller stays thin.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .types import CashManagementRefs
@@ -40,6 +43,7 @@ class CashManagementState:
     group_number: str = ''
     error_message: str = ''
     _fx_service: Any = None           # RefinitivFXService — kept alive across loads
+    is_demo: bool = False             # True when the scenario was generated locally
 
     # ── Validation predicates ─────────────────────────────────
 
@@ -56,30 +60,90 @@ class CashManagementState:
     # ── Data helpers (called by the controller) ───────────────
 
     def _get_or_create_fx_service(self) -> Any:
-        """Return a persistent RefinitivFXService instance.
+        """Return a persistent ``RefinitivFXService``, or ``None``.
 
-        The LSEG/Refinitiv ``rd`` library uses a global session that
-        cannot be cleanly re-opened after ``rd.close_session()`` is
-        called.  ``CashManager._fetch_fx_rates`` disconnects the
-        service (and closes the global session) in its ``finally``
-        block when it owns the service.
+        The LSEG/Refinitiv ``rd`` library uses a global session that cannot
+        be cleanly re-opened after ``rd.close_session()``.
+        ``CashManager._fetch_fx_rates`` disconnects the service in its
+        ``finally`` block when it owns one, so a single instance is created
+        here and passed in; ``_fetch_fx_rates`` then sees
+        ``owns_service = False`` and leaves the session open.
 
-        By creating a single ``RefinitivFXService`` here and passing
-        it into ``CashManager.from_group_number(fx_service=...)``,
-        ``_fetch_fx_rates`` sees ``owns_service = False`` and skips
-        the disconnect.  The session stays open for subsequent loads.
+        The service lives in ``pmg_core``, which is not vendored in this
+        repository.  When it cannot be imported this returns ``None`` and
+        the caller falls back to a local scenario, rather than failing with
+        a ``NameError`` on a variable that was never assigned.
         """
         if self._fx_service is not None:
             return self._fx_service
 
-        from pmg_core.dataModel.vendor.refinitiv.FXForwardPrices import (
-            RefinitivFXService,
-        )
+        try:
+            from pmg_core.market_data.refinitiv import RefinitivFXService
+        except ImportError:
+            log.info(
+                'RefinitivFXService unavailable (pmg_core not installed); '
+                'live FX will not be fetched.'
+            )
+            return None
+
         # Don't connect eagerly — _ensure_legs defers the connection
         # until after checking in-memory and daily disk caches.
         svc = RefinitivFXService()
         self._fx_service = svc
         return svc
+
+    @staticmethod
+    def _demo_cash_manager(group_number: str) -> Any:
+        """Build a CashManager from local data, for when Maxis is absent.
+
+        ``CashManager.from_group_number`` reaches Maxis for the cash
+        projections, Refinitiv for FX forwards and the Interest Engine for
+        carry rates.  None of those are vendored here, so without this the
+        page cannot be exercised at all outside the corporate network.
+
+        The scenario is derived from *group_number* so a given input always
+        produces the same ladder, and different inputs produce different
+        ones.  It is deliberately shaped to be interesting to optimise: a
+        foreign payment that has to be funded, a receipt that arrives after
+        it, and an opening overdraft in a third currency.
+        """
+        from scripts.cash_optimizer_poc.cash_manager import CashManager
+        from scripts.cash_optimizer_poc.models import CashFlowSet, Config
+
+        seed = sum(ord(c) for c in group_number) or 1
+
+        # The shipped default has sterling yielding more than every foreign
+        # currency, so holding foreign is never attractive and the
+        # speculative-holding limit can never bind -- its switch would look
+        # broken.  Give the demo a dollar rate above base, which is an
+        # ordinary enough state of the world, so the control demonstrably
+        # changes the plan.
+        credit = {'GBP': 3.65, 'USD': 6.40, 'EUR': 0.20, 'JPY': 0.01}
+        debit = {'GBP': 5.00, 'USD': 5.00, 'EUR': 4.50, 'JPY': 3.00}
+
+        cfg = Config(horizon_days=7, credit_carry_pa=credit, debit_carry_pa=debit)
+        horizon = cfg.horizon_days
+        foreign = [c for c in cfg.currencies if c != cfg.base_ccy]
+
+        cashflows = CashFlowSet(horizon_days=horizon)
+        opening = {cfg.base_ccy: 1_000_000.0 + (seed % 7) * 250_000.0}
+
+        for i, ccy in enumerate(foreign):
+            pay_day = 2 + (seed + i) % max(1, horizon - 3)
+            cashflows.add(ccy, pay_day, -(100_000.0 + ((seed * (i + 3)) % 9) * 25_000.0))
+            receipt_day = min(horizon - 1, pay_day + 2)
+            if receipt_day > pay_day:
+                cashflows.add(ccy, receipt_day, 40_000.0 + ((seed + i) % 5) * 10_000.0)
+            # Every other currency starts overdrawn, which the plan must cure.
+            opening[ccy] = -(20_000.0 + (seed % 4) * 5_000.0) if i % 2 else 0.0
+
+        # An unearmarked credit in the high-yielding currency: with the limit
+        # on it must be swept, with it off the optimiser will sit on it.
+        top = foreign[0] if foreign else None
+        if top is not None:
+            opening[top] = opening.get(top, 0.0) + 400_000.0
+
+        return CashManager(cfg, cashflows, opening_balances=opening)
 
     def load_cash_manager(self, group_number: str) -> None:
         """Create a CashManager for *group_number* via the POC module.
@@ -102,12 +166,24 @@ class CashManagementState:
         """
         from scripts.cash_optimizer_poc.cash_manager import CashManager
 
-        fx_svc = self._get_or_create_fx_service()
+        if hasattr(CashManager, 'from_group_number'):
+            mgr = CashManager.from_group_number(
+                group_number,
+                fx_service=self._get_or_create_fx_service(),
+            )
+            self.is_demo = False
+        else:
+            # The Maxis / Refinitiv / Interest Engine integration layer is
+            # commented out in this checkout, so there is nothing to fetch
+            # from.  Fall back rather than raising AttributeError: the whole
+            # point of the page is the optimiser, and that works locally.
+            log.warning(
+                'CashManager.from_group_number is unavailable; '
+                'loading a locally generated scenario for %s', group_number,
+            )
+            mgr = self._demo_cash_manager(group_number)
+            self.is_demo = True
 
-        mgr = CashManager.from_group_number(
-            group_number,
-            fx_service=fx_svc,
-        )
         self.cash_manager = mgr
         self.group_number = group_number
         self.optimal_result = None  # Clear stale results on reload
@@ -183,15 +259,20 @@ class CashManagementState:
             from scripts.cash_optimizer_poc.cash_manager import CashManager
 
             fx_service = self._get_or_create_fx_service()
-            new_fx = CashManager._fetch_fx_rates(
-                base_ccy=mgr.config.base_ccy,
-                foreign_ccys=new_foreign,
-                fx_service=fx_service,
-            )
-
-            # Merge into existing fx_quotes
-            for ccy, tenor_quotes in new_fx.items():
-                mgr.config.fx_quotes[ccy] = tenor_quotes
+            if hasattr(CashManager, '_fetch_fx_rates') and fx_service is not None:
+                new_fx = CashManager._fetch_fx_rates(
+                    base_ccy=mgr.config.base_ccy,
+                    foreign_ccys=new_foreign,
+                    fx_service=fx_service,
+                )
+                # Merge into existing fx_quotes
+                for ccy, tenor_quotes in new_fx.items():
+                    mgr.config.fx_quotes[ccy] = tenor_quotes
+            else:
+                log.warning(
+                    'No FX service available; %s cannot be priced and the '
+                    'check below will reject them.', new_foreign,
+                )
 
             # Add default credit/debit rates for new currencies (0%)
             for ccy in new_foreign:
@@ -308,10 +389,20 @@ class CashManagementState:
     def get_cost_breakdown(self) -> Dict[str, float]:
         """Return cost breakdown as a dict.
 
-        Keys: credit_carry, debit_carry, fx_exposure, commission, total.
+        Keys: credit_carry, debit_carry, fx_exposure, commission,
+        spread, terminal_unwind, total.
+
         Uses the CashManager's _compute_cost helper for the optimizer
         result so we get an itemised breakdown (the Result object only
         stores the aggregate total_cost).
+
+        All six components must be listed.  ``CostBreakdown`` gained
+        ``spread_cost`` and ``terminal_unwind_cost`` when trades started
+        being valued at the rate they are dealt at rather than at spot mid,
+        and a table that omits them does not add up to its own total -- it
+        understates the plan by the half-spread on every trade, which is
+        precisely the defect that made a duplicate CostBreakdown worth
+        deleting in the first place.
         """
         mgr = self.cash_manager
         result = self.optimal_result
@@ -326,6 +417,8 @@ class CashManagementState:
             'debit_carry': cb.debit_carry_cost,
             'fx_exposure': cb.fx_exposure_cost,
             'commission': cb.commission_cost,
+            'spread': cb.spread_cost,
+            'terminal_unwind': cb.terminal_unwind_cost,
             'total': cb.total_cost,
         }
 

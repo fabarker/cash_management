@@ -423,7 +423,7 @@ def build_view() -> CashManagementRefs:
                 ui.separator().style('margin: 0 0 20px 0;')
                 ui.label('CONSTRAINTS').classes('info-section-title')
                 with ui.row().classes('items-center gap-3'):
-                    t0_debit_only_switch = ui.switch('T0 trade debits only', value=True)
+                    holding_ceiling_switch = ui.switch('Restrict speculative holdings', value=True)
                     ui.label(
                         'When ON, T+0 trades are only allowed to cover a same-day debit.'
                     ).style('font-size: 13px; color: #6c757d;')
@@ -487,7 +487,7 @@ def build_view() -> CashManagementRefs:
         fx_quotes_container=fx_quotes_container,
         commission_container=commission_container,
         constraints_section=constraints_section,
-        t0_debit_only_switch=t0_debit_only_switch,
+        holding_ceiling_switch=holding_ceiling_switch,
         ledger_section=ledger_section,
         ledger_table_container=ledger_table_container,
         edit_dialog=edit_dialog,

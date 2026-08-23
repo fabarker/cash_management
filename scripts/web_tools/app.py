@@ -4,6 +4,7 @@ Importing page modules registers their routes via @ui.page decorators.
 """
 
 import logging
+import os
 import sys
 
 from nicegui import ui, app
@@ -43,11 +44,31 @@ app.config.message_history_length = 10_000  # default is 1000
 app.add_static_files('/assets', Path(__file__).resolve().parent / 'assets')
 from scripts.web_tools.pages.cash_management import page as cash_management_page
 
+
+# Nothing registered a route at '/', so the root URL returned 404 and the
+# wordmark in the header -- which links to '/' -- led nowhere.  Cash
+# Management is the only page in this checkout; when a real landing page
+# arrives, replace this.
+@ui.page('/')
+def index() -> None:
+    ui.navigate.to('/cash-management')
+
 def main() -> None:
+    # app.storage.user is backed by a signed session cookie, so ui.run needs a
+    # secret or every page touching it raises.  The header reads the display
+    # name from it, which is every page.
+    #
+    # Set PMG_STORAGE_SECRET in any deployment where sessions must survive a
+    # restart or be shared across workers.  The development default below is
+    # constant so a local restart does not silently log you out; it is not a
+    # secret and must not be relied on anywhere real.
+    storage_secret = os.environ.get('PMG_STORAGE_SECRET', 'pmg-web-tools-dev')
+
     ui.run(
         reload=False,
         reconnect_timeout=60.0,       # default 3s is too tight; prevents spurious reloads
-        title="PMG Web Tools"
+        storage_secret=storage_secret,
+        title="PMG Web Tools",
     )
 
 

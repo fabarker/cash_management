@@ -20,10 +20,6 @@ def cash_management_page() -> None:
     auth → styles → header → view → state → controller → wire.
     """
 
-    # TODO: Re-enable auth before going to production
-    # if not require_auth():
-    #     return
-
     apply_styles(Theme())
     build_header(80)
 

@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from nicegui import ui, app
 
-from .header_common import build_clock, build_user_name, load_wordmark_svg, _logout
+from .header_common import build_clock, build_user_name, load_wordmark_svg
+
+
+def _logout() -> None:
+    """Clear the session and return to the landing page.
+
+    The menu item has always called this; it was never defined, so opening
+    the menu and clicking Logout raised NameError.
+    """
+    app.storage.user.clear()
+    ui.navigate.to('/')
 
 
 def build_header(height=72, text='PMG Web Tools') -> None:

@@ -34,7 +34,7 @@ class CashManagementRefs:
 
     # ── Constraint toggles section ─────────────────────────────
     constraints_section: ui.element
-    t0_debit_only_switch: ui.switch
+    holding_ceiling_switch: ui.switch
 
     # ── Editable cash projections ──────────────────────────────
     ledger_section: ui.element
