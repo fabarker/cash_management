@@ -1,5 +1,3 @@
-web_tools is a nicegui app developed in python. Analyse the package for structure
-
 """PMG Web Tools NiceGUI entrypoint.
 
 Importing page modules registers their routes via @ui.page decorators.

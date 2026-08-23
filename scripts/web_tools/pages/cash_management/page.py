@@ -3,10 +3,9 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from pmg_core.apps.pmg_web_tools.auth import require_auth
-from pmg_core.apps.pmg_web_tools.config import Theme
-from pmg_core.apps.pmg_web_tools.styles import apply_styles
-from pmg_core.apps.pmg_web_tools.components.header_standard import build_header
+from scripts.web_tools.config import Theme
+from scripts.web_tools.styles import apply_styles
+from scripts.web_tools.components.header_standard import build_header
 
 from .controller import CashManagementController
 from .state import CashManagementState

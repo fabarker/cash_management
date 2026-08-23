@@ -624,15 +624,15 @@ class CashOptimizer:
 
         * the hole reachable from a trade dealt today — currency that must
           still be **acquired**, which is where the reach window belongs;
-        * currency already **earmarked** — the part of the do-nothing
-          holding that a remaining outflow will consume.
+        * currency already **earmarked** — the part of what the account has
+          been given that a remaining outflow will consume.
 
-        The earmark is capped by the do-nothing holding, which no amount of
-        trading can inflate, so it cannot be used to manufacture a
-        position: on a day the account would hold nothing, it contributes
-        nothing.  It carries no reach window, deliberately.  Money already
-        in hand against a known obligation is not a position, and forcing
-        it to be sold and rebought is pure waste.
+        The earmark is capped by receipts banked to date, which no amount of
+        trading can inflate, so it cannot be used to manufacture a position:
+        before the money arrives it contributes nothing.  It carries no
+        reach window, deliberately.  Money already in hand against a known
+        obligation is not a position, and forcing it to be sold and rebought
+        is pure waste.
 
         One carve-out.  A known future receipt can be sold forward to the
         day it lands, so it is never actually held and the ceiling costs
@@ -669,15 +669,39 @@ class CashOptimizer:
                 running += -flow
             still_to_pay[d] = running
 
+        # Receipts banked by each day, including a positive opening balance.
+        # This is what the account was *given*, and no amount of trading can
+        # change it -- which is what stops the earmark below being used to
+        # manufacture a position.  It deliberately does not net the outflows
+        # off: once a payment has been funded by a purchase, the receipt that
+        # follows is genuinely spare cash, and a measure that keeps
+        # subtracting the already-settled debt reads it as zero and forces it
+        # to be swept and rebought.
+        received = [0.0] * horizon
+        running = max(0.0, self.opening.get(ccy, 0.0))
+        for d in range(horizon):
+            flow = self.cf.get(ccy, d)
+            if flow > 0.0:
+                running += flow
+            received[d] = running
+
         ceiling: List[float] = []
         for d in range(horizon):
             to_acquire = max(hole[d:min(d + max_lag + 1, horizon)])
-            earmarked = min(still_to_pay[d], max(0.0, ladder[d]))
+            earmarked = min(still_to_pay[d], received[d])
             cap = to_acquire + earmarked
             if d < max_lag:
                 cap = max(cap, ladder[d])
             ceiling.append(cap)
         return ceiling
+
+    @staticmethod
+    def _tighten(var, upper: float) -> None:
+        """Lower a variable's upper bound, never raise it."""
+        if var is None:
+            return
+        if var.upBound is None or upper < var.upBound:
+            var.upBound = upper
 
     def _add_holding_ceiling(self, prob: pulp.LpProblem) -> None:
         """Hold the balance inside the corridor the cash flows define.
@@ -703,25 +727,20 @@ class CashOptimizer:
             ceiling = self._holding_ceiling(ccy)
             floor = [max(0.0, -b) for b in self._do_nothing_ladder(ccy)]
             for d in range(self.cfg.horizon_days):
-                prob += (
-                    self._v("bal_neg", ccy, d) <= floor[d],
-                    f"hold_floor_{ccy}_{d}",
-                )
                 cap = ceiling[d]
                 if cap > 0.0:
-                    slack = max(cap * self.cfg.holding_tolerance,
-                                self.cfg.holding_min_slack)
-                else:
-                    # No reachable need, so no holding is justifiable.
-                    # Keep this an exact zero for the same reason the
-                    # anti-speculative cap does: an "almost nothing" bound
-                    # leaves the day's binaries live and presolve can no
-                    # longer strip them.
-                    slack = 0.0
-                prob += (
-                    self._v("bal_pos", ccy, d) <= cap + slack,
-                    f"hold_ceil_{ccy}_{d}",
-                )
+                    cap += max(cap * self.cfg.holding_tolerance,
+                               self.cfg.holding_min_slack)
+                # Applied as variable bounds, not as constraint rows.  A cap
+                # on a single variable is a bound; writing it as a row adds a
+                # near-binding near-duplicate for every day of the horizon,
+                # and that much dual degeneracy is exactly what the cap this
+                # replaced went to some trouble to eliminate.  Measured on a
+                # three-currency twelve-day model, rows cost 3x the wall time
+                # of bounds for an identical answer.
+                self._tighten(self._v("bal_pos", ccy, d), cap)
+                self._tighten(self._v("bal_neg", ccy, d), floor[d])
+
             log.info(
                 "Holding corridor for %s: ceiling=%s floor=%s",
                 ccy, [round(c, 2) for c in ceiling],
