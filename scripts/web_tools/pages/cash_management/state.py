@@ -26,9 +26,8 @@ class CashManagementState:
         True while an async load/solve operation is in-flight.
         Used to prevent duplicate submissions.
     cash_manager : object or None
-        The ``CashManager`` instance returned by
-        ``CashManager.from_group_number()``.  Stored so the controller
-        can call ``solve_optimal()`` without re-fetching projections.
+        The ``CashManager`` built from the loaded scenario.  Stored so the
+        controller can call ``solve_optimal()`` without rebuilding it.
     optimal_result : object or None
         The ``Result`` returned by ``cash_manager.solve_optimal()``.
     group_number : str
@@ -44,14 +43,18 @@ class CashManagementState:
     error_message: str = ''
     _fx_service: Any = None           # RefinitivFXService — kept alive across loads
     is_demo: bool = False             # True when the scenario was generated locally
+    scenario: Any = None              # the loaded scenario dict, if any
+    scenario_index: int = -1          # 0-based position in the library; -1 = none yet
 
     # ── Validation predicates ─────────────────────────────────
 
     def can_load(self, refs: CashManagementRefs) -> bool:
-        """Return True when the group number input is non-empty and
-        no operation is currently in-flight."""
-        value = (refs.group_number_input.value or '').strip()
-        return bool(value) and not self.is_loading
+        """Return True whenever no operation is in flight.
+
+        The button steps through the scenario library, so it does not need
+        anything typed.  The input is an optional jump-to.
+        """
+        return not self.is_loading
 
     def can_generate_trades(self) -> bool:
         """Return True when a CashManager is loaded and not busy."""
@@ -92,101 +95,69 @@ class CashManagementState:
         self._fx_service = svc
         return svc
 
-    @staticmethod
-    def _demo_cash_manager(group_number: str) -> Any:
-        """Build a CashManager from local data, for when Maxis is absent.
+    def load_scenario(self, selector: str = '') -> None:
+        """Load the next scenario from the library, or the one *selector* names.
 
-        ``CashManager.from_group_number`` reaches Maxis for the cash
-        projections, Refinitiv for FX forwards and the Interest Engine for
-        carry rates.  None of those are vendored here, so without this the
-        page cannot be exercised at all outside the corporate network.
+        Blocking (the solve is not, but building the CashManager validates
+        the whole config) — the controller runs it via ``run.io_bound``.
 
-        The scenario is derived from *group_number* so a given input always
-        produces the same ladder, and different inputs produce different
-        ones.  It is deliberately shaped to be interesting to optimise: a
-        foreign payment that has to be funded, a receipt that arrives after
-        it, and an opening overdraft in a third currency.
+        With *selector* empty the library advances one place and wraps at the
+        end, so repeatedly pressing the button walks all twenty in order.
+        A selector matching a scenario id (``S07``) or a 1-based position
+        (``7``) jumps straight there instead.
+
+        Parameters
+        ----------
+        selector : str
+            Scenario id, 1-based index, or empty to advance.
         """
-        from scripts.cash_optimizer_poc.cash_manager import CashManager
-        from scripts.cash_optimizer_poc.models import CashFlowSet, Config
+        from scripts.cash_optimizer_poc.scenarios import (
+            build_cash_manager, load_library, summarise,
+        )
 
-        seed = sum(ord(c) for c in group_number) or 1
+        library = load_library()
+        selector = (selector or '').strip()
 
-        # The shipped default has sterling yielding more than every foreign
-        # currency, so holding foreign is never attractive and the
-        # speculative-holding limit can never bind -- its switch would look
-        # broken.  Give the demo a dollar rate above base, which is an
-        # ordinary enough state of the world, so the control demonstrably
-        # changes the plan.
-        credit = {'GBP': 3.65, 'USD': 6.40, 'EUR': 0.20, 'JPY': 0.01}
-        debit = {'GBP': 5.00, 'USD': 5.00, 'EUR': 4.50, 'JPY': 3.00}
-
-        cfg = Config(horizon_days=7, credit_carry_pa=credit, debit_carry_pa=debit)
-        horizon = cfg.horizon_days
-        foreign = [c for c in cfg.currencies if c != cfg.base_ccy]
-
-        cashflows = CashFlowSet(horizon_days=horizon)
-        opening = {cfg.base_ccy: 1_000_000.0 + (seed % 7) * 250_000.0}
-
-        for i, ccy in enumerate(foreign):
-            pay_day = 2 + (seed + i) % max(1, horizon - 3)
-            cashflows.add(ccy, pay_day, -(100_000.0 + ((seed * (i + 3)) % 9) * 25_000.0))
-            receipt_day = min(horizon - 1, pay_day + 2)
-            if receipt_day > pay_day:
-                cashflows.add(ccy, receipt_day, 40_000.0 + ((seed + i) % 5) * 10_000.0)
-            # Every other currency starts overdrawn, which the plan must cure.
-            opening[ccy] = -(20_000.0 + (seed % 4) * 5_000.0) if i % 2 else 0.0
-
-        # An unearmarked credit in the high-yielding currency: with the limit
-        # on it must be swept, with it off the optimiser will sit on it.
-        top = foreign[0] if foreign else None
-        if top is not None:
-            opening[top] = opening.get(top, 0.0) + 400_000.0
-
-        return CashManager(cfg, cashflows, opening_balances=opening)
-
-    def load_cash_manager(self, group_number: str) -> None:
-        """Create a CashManager for *group_number* via the POC module.
-
-        This is a blocking I/O call (network fetches for projections,
-        FX, and interest rates).  The controller must call it inside
-        ``asyncio.to_thread`` or ``run.io_bound``.
-
-        The resulting CashManager is stored on ``self.cash_manager``.
-
-        A persistent ``RefinitivFXService`` is reused across calls so
-        the Refinitiv global session is not closed and re-opened
-        (which the LSEG library does not support cleanly).
-
-        Raises
-        ------
-        Exception
-            Propagated from CashManager.from_group_number on any
-            failure (invalid group, network error, missing data, etc.).
-        """
-        from scripts.cash_optimizer_poc.cash_manager import CashManager
-
-        if hasattr(CashManager, 'from_group_number'):
-            mgr = CashManager.from_group_number(
-                group_number,
-                fx_service=self._get_or_create_fx_service(),
-            )
-            self.is_demo = False
+        if not selector:
+            index = (self.scenario_index + 1) % len(library)
         else:
-            # The Maxis / Refinitiv / Interest Engine integration layer is
-            # commented out in this checkout, so there is nothing to fetch
-            # from.  Fall back rather than raising AttributeError: the whole
-            # point of the page is the optimiser, and that works locally.
-            log.warning(
-                'CashManager.from_group_number is unavailable; '
-                'loading a locally generated scenario for %s', group_number,
-            )
-            mgr = self._demo_cash_manager(group_number)
-            self.is_demo = True
+            index = self._resolve_selector(selector, library)
 
-        self.cash_manager = mgr
-        self.group_number = group_number
+        sc = library[index]
+        log.info('Loading scenario %d/%d: %s', index + 1, len(library), summarise(sc))
+
+        self.cash_manager = build_cash_manager(sc)
+        self.scenario = sc
+        self.scenario_index = index
+        self.group_number = f"{sc['id']} ({index + 1}/{len(library)})"
+        self.is_demo = True
         self.optimal_result = None  # Clear stale results on reload
+
+    @staticmethod
+    def _resolve_selector(selector: str, library: List[Dict[str, Any]]) -> int:
+        """Map a typed selector to a library position, or raise."""
+        wanted = selector.upper()
+        for i, sc in enumerate(library):
+            if sc['id'].upper() == wanted:
+                return i
+        if selector.isdigit():
+            n = int(selector)
+            if 1 <= n <= len(library):
+                return n - 1
+            raise ValueError(
+                f'Scenario {n} is out of range — the library holds '
+                f'{len(library)}.'
+            )
+        raise ValueError(
+            f'No scenario matches {selector!r}. Use an id such as '
+            f'{library[0]["id"]}, a position from 1 to {len(library)}, or '
+            f'leave it blank to load the next one.'
+        )
+
+    @property
+    def scenario_count(self) -> int:
+        from scripts.cash_optimizer_poc.scenarios import load_library
+        return len(load_library())
 
     def apply_edits_and_optimize(self, edits: Dict[str, Any]) -> None:
         """Apply user table edits to the CashManager, then run the optimizer.
@@ -309,7 +280,7 @@ class CashManagementState:
             Propagated from the LP/MIP solver on failure.
         """
         if self.cash_manager is None:
-            raise RuntimeError('No CashManager loaded — call load_cash_manager() first.')
+            raise RuntimeError('No scenario loaded — call load_scenario() first.')
 
         result = self.cash_manager.solve_optimal()
         self.optimal_result = result
@@ -331,11 +302,14 @@ class CashManagementState:
         cfg = mgr.config
         return {
             'base_ccy': cfg.base_ccy,
-            # NOTE: The CashManager does not persist the funding_id after
-            # construction.  It is used only internally during from_group_number().
-            # If you need to display it, the CashManager class would need
-            # a property added.  For now we show the group number instead.
-            'funding_id': self.group_number,
+            # Repurposed: this row identifies the loaded scenario, since the
+            # page steps through a library rather than fetching a funding id.
+            'funding_id': (
+                f"{self.scenario['id']} — {self.scenario['name']}"
+                if self.scenario else self.group_number or '—'
+            ),
+            'scenario_narrative': (self.scenario or {}).get('narrative', ''),
+            'scenario_expectation': (self.scenario or {}).get('expectation', ''),
             'horizon': cfg.horizon_days,
             'currencies': cfg.currencies,
             'fx_quotes': cfg.fx_quotes,       # {ccy: {tenor: FXTenorQuote}}

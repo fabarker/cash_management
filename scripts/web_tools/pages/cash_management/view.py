@@ -321,16 +321,21 @@ def build_view() -> CashManagementRefs:
         # ── Search bar ─────────────────────────────────────────
         with ui.row().classes('items-center gap-4').style('margin-top: 16px; margin-bottom: 20px;'):
             group_number_input = (
-                ui.input(label='Group Number', placeholder='e.g. C88A37694')
+                ui.input(label='Scenario (blank = next)', placeholder='e.g. S07 or 7')
                 .props('outlined dense clearable')
                 .style('width: 280px;')
             )
             load_btn = (
-                ui.button('Load Cash Projections', icon='search')
+                ui.button('Load Next Scenario', icon='skip_next')
                 .props('unelevated color=primary')
                 .style('height: 40px;')
             )
-            load_btn.disable()
+
+            # Describes the scenario currently loaded; empty until one is.
+            scenario_caption = (
+                ui.label('')
+                .style('font-size: 13px; color: #495057; max-width: 640px;')
+            )
 
         # ── Error label (hidden by default) ────────────────────
         error_label = (
@@ -477,6 +482,7 @@ def build_view() -> CashManagementRefs:
     return CashManagementRefs(
         group_number_input=group_number_input,
         load_btn=load_btn,
+        scenario_caption=scenario_caption,
         progress_dialog=progress_dialog,
         progress_title=progress_title,
         info_panel=info_panel,

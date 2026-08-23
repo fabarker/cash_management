@@ -100,6 +100,14 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         # Dark header bar stats
         self.refs.base_ccy_label.set_text(info['base_ccy'])
         self.refs.funding_id_label.set_text(info.get('funding_id', '—'))
+
+        # Narrative and what to look for, so the scenario explains itself.
+        narrative = info.get('scenario_narrative', '')
+        expectation = info.get('scenario_expectation', '')
+        caption = narrative
+        if expectation:
+            caption = f'{narrative}  ·  Expect: {expectation}' if narrative else expectation
+        self.refs.scenario_caption.set_text(caption)
         self.refs.horizon_label.set_text(f'{info["horizon"]} days')
         self.refs.currencies_label.set_text(', '.join(info['currencies']))
 
@@ -606,27 +614,25 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
     # ================================================================
 
     async def _on_load(self, *_) -> None:
-        """Handle the Load Cash Data button click.
+        """Load the next scenario, or the one named in the input.
 
-        Validates input, loads the CashManager in a background thread,
-        then populates the info panel and cash ledger table.
+        The page steps through a fixed library rather than fetching a group
+        from Maxis, so the button needs nothing typed: each press advances
+        one place and wraps at the end.  Typing an id (``S07``) or a
+        position (``7``) jumps there instead.
         """
         if not self.state.can_load(self.refs):
             return
 
-        group_number = (self.refs.group_number_input.value or '').strip()
-        if not group_number:
-            self._show_error('Please enter a group number.')
-            return
+        selector = (self.refs.group_number_input.value or '').strip()
 
         self._hide_error()
         self.state.is_loading = True
         self._update_load_btn_state()
-        self._open_progress('Loading cash data…')
+        self._open_progress('Loading scenario…')
 
         try:
-            # CashManager.from_group_number is blocking I/O
-            await run.io_bound(self.state.load_cash_manager, group_number)
+            await run.io_bound(self.state.load_scenario, selector)
 
             # Populate the UI from the loaded state
             self._show_info_panel()
@@ -638,15 +644,16 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             # Hide stale results from a previous run
             self.refs.results_section.classes(add='hidden')
 
+            sc = self.state.scenario or {}
             ui.notify(
-                f'Cash data loaded for {group_number}',
+                f'Loaded {sc.get("id", "")} — {sc.get("name", "")}',
                 type='positive',
                 position='top',
             )
 
         except Exception as exc:
-            log.exception('Failed to load cash data for %s', group_number)
-            self._show_error(f'Failed to load data: {exc}')
+            log.exception('Failed to load scenario %r', selector)
+            self._show_error(f'Failed to load scenario: {exc}')
             ui.notify(str(exc), type='negative', position='top')
 
         finally:

@@ -69,6 +69,36 @@ mgr.compare(manual)                           # head-to-head cost table
 `cash_manager.py`'s `if __name__ == "__main__"` block calls `CashManager.from_group_number`,
 which is **entirely commented out** — running the module directly raises `AttributeError`.
 
+## Scenario library
+
+`scenarios/cash_scenarios.json` holds twenty economically-shaped scenarios — varying
+base currency (GBP/USD/EUR/JPY/CHF), which foreign currencies are in play, carry rates,
+dealing spreads and commission schedules. Each carries a `narrative` and an
+`expectation` describing what a correct plan looks like.
+
+FX forwards are **derived, not invented**: `scenarios/generate.py` crosses every pair
+off a single USD table and computes each tenor by covered interest parity, so the book
+is arbitrage-free and forward points carry the right sign against the rate
+differential. Edit the generator and re-run it; do not hand-edit the JSON.
+
+```bash
+python3 scenarios/generate.py        # regenerate after editing
+```
+
+```python
+from scripts.cash_optimizer_poc.scenarios import load_library, build_cash_manager
+for sc in load_library():
+    build_cash_manager(sc).solve_optimal().print_summary()
+```
+
+Three are deliberately not plain successes: **S16** is `Infeasible` because the need is
+below the minimum ticket, **S20** returns a plan with `insufficient_funds` set, and
+**S07** is the carry test — toggling `holding_ceiling` off makes it *cheaper*, and that
+fall is the speculation being taken.
+
+The web page steps through the library in order: the load button advances one place and
+wraps at the end, and typing an id (`S07`) or a position (`7`) jumps there instead.
+
 ## Architecture
 
 Strict one-way layering; each module imports only from the ones above it.

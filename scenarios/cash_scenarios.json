@@ -1,0 +1,1847 @@
+{
+  "version": 1,
+  "description": "Twenty cash-management scenarios for the optimiser. FX forwards are derived from covered interest parity off a single USD cross table, so the book is arbitrage-free and the forward points carry the right sign against each rate differential.",
+  "market_data": {
+    "usd_per_unit": {
+      "USD": 1.0,
+      "GBP": 1.2658,
+      "EUR": 1.08,
+      "JPY": 0.006578947368421052,
+      "CHF": 1.1363636363636365
+    },
+    "policy_pa": {
+      "USD": 4.25,
+      "GBP": 4.0,
+      "EUR": 2.15,
+      "JPY": 0.5,
+      "CHF": 0.25
+    },
+    "credit_pa": {
+      "USD": 3.75,
+      "GBP": 3.5,
+      "EUR": 1.65,
+      "JPY": 0.1,
+      "CHF": 0.05
+    },
+    "debit_pa": {
+      "USD": 6.25,
+      "GBP": 6.0,
+      "EUR": 4.15,
+      "JPY": 2.0,
+      "CHF": 2.25
+    },
+    "day_count_basis": {
+      "USD": 360,
+      "GBP": 365,
+      "EUR": 360,
+      "JPY": 365,
+      "CHF": 360
+    },
+    "half_spreads": {
+      "tight": 0.0001,
+      "normal": 0.00025,
+      "wide": 0.0008
+    },
+    "commission_profiles": {
+      "institutional": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "standard": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "three_tier": [
+        {
+          "threshold": 250000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 2000000,
+          "rate_bps": 18.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 8.0
+        }
+      ],
+      "flat": [
+        {
+          "threshold": 500000000,
+          "rate_bps": 12.0
+        }
+      ],
+      "retail": [
+        {
+          "threshold": 100000,
+          "rate_bps": 60.0
+        },
+        {
+          "threshold": 1000000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 20.0
+        }
+      ]
+    }
+  },
+  "scenarios": [
+    {
+      "id": "S01",
+      "name": "Single dollar payment",
+      "narrative": "A sterling book with one dollar invoice falling due mid-week and ample cash to meet it. The plainest case there is.",
+      "expectation": "One USD buy landing on day 4. Nothing held before day 2, because the payment is out of dealing reach until then.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 4000000.0,
+        "USD": 0.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 4,
+          "amount": -750000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S02",
+      "name": "Staggered payables",
+      "narrative": "Three foreign invoices on different dates. The optimiser has to fund each one separately rather than pre-buying a single block.",
+      "expectation": "Three buys, each inside its own settlement window. Institutional commission makes the tenor choice cheap.",
+      "base_ccy": "USD",
+      "currencies": [
+        "USD",
+        "GBP",
+        "EUR",
+        "CHF"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "tight",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "USD": 360,
+        "GBP": 365,
+        "EUR": 360,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "USD": 3.75,
+        "GBP": 3.5,
+        "EUR": 1.65,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "USD": 6.25,
+        "GBP": 6.0,
+        "EUR": 4.15,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "GBP": {
+          "T0": {
+            "bid": 1.26567342,
+            "ask": 1.26592658
+          },
+          "T1": {
+            "bid": 1.2656841347,
+            "ask": 1.2659372968
+          },
+          "T2": {
+            "bid": 1.265694847,
+            "ask": 1.2659480113
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 1.079892,
+            "ask": 1.080108
+          },
+          "T1": {
+            "bid": 1.0799549899,
+            "ask": 1.0801710025
+          },
+          "T2": {
+            "bid": 1.0800179724,
+            "ask": 1.0802339976
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 1.13625,
+            "ask": 1.1364772727
+          },
+          "T1": {
+            "bid": 1.1363762491,
+            "ask": 1.1366035471
+          },
+          "T2": {
+            "bid": 1.1365024965,
+            "ask": 1.1367298197
+          }
+        }
+      },
+      "opening_balances": {
+        "USD": 8000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "GBP",
+          "day": 3,
+          "amount": -700000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 5,
+          "amount": -1100000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 6,
+          "amount": -400000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S03",
+      "name": "Opening dollar overdraft",
+      "narrative": "The account is already short dollars at the start of the week and nothing else is scheduled in that currency. It has to be cured.",
+      "expectation": "A USD buy clearing the overdraft inside the settlement window. This case used to return Infeasible.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 3000000.0,
+        "USD": -620000.0
+      },
+      "cash_flows": [],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S04",
+      "name": "Receipt funds a later payment",
+      "narrative": "A dollar receipt lands on Tuesday and a dollar payment falls due on Friday. The receipt should simply be kept to meet it.",
+      "expectation": "No round trip. The earmarked 950k is held; the 450k surplus is swept back to sterling.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 2000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 1,
+          "amount": 1400000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 5,
+          "amount": -950000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S05",
+      "name": "Bridge across a timing gap",
+      "narrative": "The euro payment lands three days before the euro receipt that was meant to cover it. A genuine funding gap, not a shortfall.",
+      "expectation": "Either a euro purchase for day 2 or a priced overdraft across the gap, whichever the commission makes cheaper.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "EUR"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "EUR": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "EUR": 1.65
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "EUR": 4.15
+      },
+      "fx_quotes": {
+        "EUR": {
+          "T0": {
+            "bid": 0.853002054,
+            "ask": 0.8534286617
+          },
+          "T1": {
+            "bid": 0.853044588,
+            "ask": 0.8534712169
+          },
+          "T2": {
+            "bid": 0.8530871169,
+            "ask": 0.8535137671
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 3500000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "EUR",
+          "day": 2,
+          "amount": -1600000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 5,
+          "amount": 1750000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S06",
+      "name": "Thin base balance",
+      "narrative": "Payables are covered, but only just. Very little sterling headroom, so the overdraft rate on the base account starts to matter.",
+      "expectation": "The Swiss holding is used before anything is bought. Watch the base balance for a shallow overdraft.",
+      "base_ccy": "EUR",
+      "currencies": [
+        "EUR",
+        "USD",
+        "CHF"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "three_tier",
+      "commission_tiers": [
+        {
+          "threshold": 250000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 2000000,
+          "rate_bps": 18.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 8.0
+        }
+      ],
+      "day_count_basis": {
+        "EUR": 360,
+        "USD": 360,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "EUR": 1.65,
+        "USD": 3.75,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "EUR": 4.15,
+        "USD": 6.25,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.9256944444,
+            "ask": 0.9261574074
+          },
+          "T1": {
+            "bid": 0.925640452,
+            "ask": 0.9261033879
+          },
+          "T2": {
+            "bid": 0.9255864723,
+            "ask": 0.9260493812
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 1.0519255051,
+            "ask": 1.0524515993
+          },
+          "T1": {
+            "bid": 1.051981023,
+            "ask": 1.052507145
+          },
+          "T2": {
+            "bid": 1.0520365401,
+            "ask": 1.0525626899
+          }
+        }
+      },
+      "opening_balances": {
+        "EUR": 210000.0,
+        "USD": 0.0,
+        "CHF": 240000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -280000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 4,
+          "amount": -160000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S07",
+      "name": "Dollar carry temptation",
+      "narrative": "The dollar is paying well above sterling and the account has a large unearmarked dollar credit. The obligation is trivially small.",
+      "expectation": "The dollar credit must be swept promptly despite the yield. Toggle the speculative-holding limit off and the cost should fall -- that fall is the carry being taken.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "tight",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7899352188,
+            "ask": 0.7900932217
+          },
+          "T1": {
+            "bid": 0.7899285316,
+            "ask": 0.7900865331
+          },
+          "T2": {
+            "bid": 0.789921846,
+            "ask": 0.7900798462
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 5000000.0,
+        "USD": 2500000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 6,
+          "amount": -50000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000,
+      "credit_carry_pa_override": {
+        "USD": 6.4
+      },
+      "note": "A dollar rate above sterling is an ordinary enough state of the world and is what makes this a test."
+    },
+    {
+      "id": "S08",
+      "name": "Yen invoice, large notional",
+      "narrative": "A single large yen payable. Nothing unusual economically, but the notional is two orders of magnitude larger than the others.",
+      "expectation": "One yen buy of 420m. A flat commission removes the tier structure, so only the spread and carry drive the tenor.",
+      "base_ccy": "USD",
+      "currencies": [
+        "USD",
+        "JPY"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "flat",
+      "commission_tiers": [
+        {
+          "threshold": 500000000,
+          "rate_bps": 12.0
+        }
+      ],
+      "day_count_basis": {
+        "USD": 360,
+        "JPY": 365
+      },
+      "credit_carry_pa": {
+        "USD": 3.75,
+        "JPY": 0.1
+      },
+      "debit_carry_pa": {
+        "USD": 6.25,
+        "JPY": 2.0
+      },
+      "fx_quotes": {
+        "JPY": {
+          "T0": {
+            "bid": 0.0065773026,
+            "ask": 0.0065805921
+          },
+          "T1": {
+            "bid": 0.006577989,
+            "ask": 0.0065812788
+          },
+          "T2": {
+            "bid": 0.0065786754,
+            "ask": 0.0065819655
+          }
+        }
+      },
+      "opening_balances": {
+        "USD": 5000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "JPY",
+          "day": 4,
+          "amount": -420000000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S09",
+      "name": "Payment due today",
+      "narrative": "A dollar payment falls due on day zero, before any forward trade could settle against it.",
+      "expectation": "Same-day settlement or a short dollar overdraft on day zero, whichever prices better.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 2800000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 0,
+          "amount": -540000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S10",
+      "name": "Receipt on the closing day",
+      "narrative": "A euro receipt arrives on the last day of the ladder and must still be back in base by the close.",
+      "expectation": "The receipt is sold forward to settle the day it lands, so it is never actually held.",
+      "base_ccy": "CHF",
+      "currencies": [
+        "CHF",
+        "EUR"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "CHF": 360,
+        "EUR": 360
+      },
+      "credit_carry_pa": {
+        "CHF": 0.05,
+        "EUR": 1.65
+      },
+      "debit_carry_pa": {
+        "CHF": 2.25,
+        "EUR": 4.15
+      },
+      "fx_quotes": {
+        "EUR": {
+          "T0": {
+            "bid": 0.9501624,
+            "ask": 0.9506376
+          },
+          "T1": {
+            "bid": 0.9501122555,
+            "ask": 0.9505874305
+          },
+          "T2": {
+            "bid": 0.9500621171,
+            "ask": 0.9505372669
+          }
+        }
+      },
+      "opening_balances": {
+        "CHF": 1400000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "EUR",
+          "day": 6,
+          "amount": 880000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S11",
+      "name": "Full four-currency book",
+      "narrative": "Everything at once: payables and receivables across all four foreign currencies, with one of them opening overdrawn.",
+      "expectation": "The euro opening credit offsets part of the euro payable. The dollar overdraft is cured before the dollar payable.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD",
+        "EUR",
+        "JPY",
+        "CHF"
+      ],
+      "horizon_days": 9,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "three_tier",
+      "commission_tiers": [
+        {
+          "threshold": 250000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 2000000,
+          "rate_bps": 18.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 8.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360,
+        "EUR": 360,
+        "JPY": 365,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75,
+        "EUR": 1.65,
+        "JPY": 0.1,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25,
+        "EUR": 4.15,
+        "JPY": 2.0,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 0.853002054,
+            "ask": 0.8534286617
+          },
+          "T1": {
+            "bid": 0.853044588,
+            "ask": 0.8534712169
+          },
+          "T2": {
+            "bid": 0.8530871169,
+            "ask": 0.8535137671
+          }
+        },
+        "JPY": {
+          "T0": {
+            "bid": 0.0051961626,
+            "ask": 0.0051987613
+          },
+          "T1": {
+            "bid": 0.0051966609,
+            "ask": 0.0051992598
+          },
+          "T2": {
+            "bid": 0.0051971591,
+            "ask": 0.0051997583
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 0.8975189963,
+            "ask": 0.897967868
+          },
+          "T1": {
+            "bid": 0.8976111211,
+            "ask": 0.8980600389
+          },
+          "T2": {
+            "bid": 0.8977032446,
+            "ask": 0.8981522085
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 8000000.0,
+        "USD": -300000.0,
+        "EUR": 500000.0,
+        "JPY": 0.0,
+        "CHF": 0.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -1200000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 4,
+          "amount": -800000.0
+        },
+        {
+          "ccy": "JPY",
+          "day": 5,
+          "amount": -180000000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 6,
+          "amount": -650000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 7,
+          "amount": 700000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 8,
+          "amount": 200000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S12",
+      "name": "Dollar-based treasury",
+      "narrative": "The same problem seen from a US book: sterling and euro payables against a dollar base.",
+      "expectation": "Both foreign legs now yield less than base, so there is no incentive to hold either a day longer than needed.",
+      "base_ccy": "USD",
+      "currencies": [
+        "USD",
+        "GBP",
+        "EUR"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "USD": 360,
+        "GBP": 365,
+        "EUR": 360
+      },
+      "credit_carry_pa": {
+        "USD": 3.75,
+        "GBP": 3.5,
+        "EUR": 1.65
+      },
+      "debit_carry_pa": {
+        "USD": 6.25,
+        "GBP": 6.0,
+        "EUR": 4.15
+      },
+      "fx_quotes": {
+        "GBP": {
+          "T0": {
+            "bid": 1.26548355,
+            "ask": 1.26611645
+          },
+          "T1": {
+            "bid": 1.2654942631,
+            "ask": 1.2661271684
+          },
+          "T2": {
+            "bid": 1.2655049738,
+            "ask": 1.2661378845
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 1.07973,
+            "ask": 1.08027
+          },
+          "T1": {
+            "bid": 1.0797929805,
+            "ask": 1.080333012
+          },
+          "T2": {
+            "bid": 1.0798559535,
+            "ask": 1.0803960164
+          }
+        }
+      },
+      "opening_balances": {
+        "USD": 5000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "GBP",
+          "day": 3,
+          "amount": -900000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 5,
+          "amount": -1400000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S13",
+      "name": "Euro-based treasury",
+      "narrative": "A European book funding dollar and Swiss obligations, with the euro paying materially less than the dollar.",
+      "expectation": "Base yields less than the dollar here, so the limit on speculative holdings is doing visible work.",
+      "base_ccy": "EUR",
+      "currencies": [
+        "EUR",
+        "USD",
+        "GBP",
+        "CHF"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "tight",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "EUR": 360,
+        "USD": 360,
+        "GBP": 365,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "EUR": 1.65,
+        "USD": 3.75,
+        "GBP": 3.5,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "EUR": 4.15,
+        "USD": 6.25,
+        "GBP": 6.0,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.9258333333,
+            "ask": 0.9260185185
+          },
+          "T1": {
+            "bid": 0.9257793328,
+            "ask": 0.9259645071
+          },
+          "T2": {
+            "bid": 0.9257253449,
+            "ask": 0.9259105085
+          }
+        },
+        "GBP": {
+          "T0": {
+            "bid": 1.1719198333,
+            "ask": 1.1721542407
+          },
+          "T1": {
+            "bid": 1.1718613998,
+            "ask": 1.1720957955
+          },
+          "T2": {
+            "bid": 1.1718029791,
+            "ask": 1.1720373632
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 1.0520833333,
+            "ask": 1.052293771
+          },
+          "T1": {
+            "bid": 1.0521388596,
+            "ask": 1.0523493084
+          },
+          "T2": {
+            "bid": 1.052194385,
+            "ask": 1.052404845
+          }
+        }
+      },
+      "opening_balances": {
+        "EUR": 6000000.0,
+        "USD": 0.0,
+        "CHF": 150000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 2,
+          "amount": -1800000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 5,
+          "amount": -900000.0
+        },
+        {
+          "ccy": "GBP",
+          "day": 6,
+          "amount": -450000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S14",
+      "name": "Yen-based treasury",
+      "narrative": "A Japanese book. Base notionals run to hundreds of millions and the base currency yields almost nothing.",
+      "expectation": "Every foreign currency out-yields the yen base, which is the strongest carry pull in the library.",
+      "base_ccy": "JPY",
+      "currencies": [
+        "JPY",
+        "USD",
+        "EUR"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "JPY": 365,
+        "USD": 360,
+        "EUR": 360
+      },
+      "credit_carry_pa": {
+        "JPY": 0.1,
+        "USD": 3.75,
+        "EUR": 1.65
+      },
+      "debit_carry_pa": {
+        "JPY": 2.0,
+        "USD": 6.25,
+        "EUR": 4.15
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 151.962,
+            "ask": 152.038
+          },
+          "T1": {
+            "bid": 151.9461435848,
+            "ask": 152.0221356546
+          },
+          "T2": {
+            "bid": 151.9302909127,
+            "ask": 152.0062750542
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 164.11896,
+            "ask": 164.20104
+          },
+          "T1": {
+            "bid": 164.111407107,
+            "ask": 164.1934833296
+          },
+          "T2": {
+            "bid": 164.1038551161,
+            "ask": 164.1859275617
+          }
+        }
+      },
+      "opening_balances": {
+        "JPY": 900000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -2200000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 5,
+          "amount": -1500000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S15",
+      "name": "Swiss-based treasury",
+      "narrative": "A Swiss book with the lowest base yield of the five and a euro receivable arriving mid-week.",
+      "expectation": "The euro overdraft is cured, then the euro receipt covers it and the surplus is swept.",
+      "base_ccy": "CHF",
+      "currencies": [
+        "CHF",
+        "EUR",
+        "USD"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "three_tier",
+      "commission_tiers": [
+        {
+          "threshold": 250000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 2000000,
+          "rate_bps": 18.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 8.0
+        }
+      ],
+      "day_count_basis": {
+        "CHF": 360,
+        "EUR": 360,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "CHF": 0.05,
+        "EUR": 1.65,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "CHF": 2.25,
+        "EUR": 4.15,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "EUR": {
+          "T0": {
+            "bid": 0.9501624,
+            "ask": 0.9506376
+          },
+          "T1": {
+            "bid": 0.9501122555,
+            "ask": 0.9505874305
+          },
+          "T2": {
+            "bid": 0.9500621171,
+            "ask": 0.9505372669
+          }
+        },
+        "USD": {
+          "T0": {
+            "bid": 0.87978,
+            "ask": 0.88022
+          },
+          "T1": {
+            "bid": 0.8796822582,
+            "ask": 0.8801222093
+          },
+          "T2": {
+            "bid": 0.8795845395,
+            "ask": 0.8800244417
+          }
+        }
+      },
+      "opening_balances": {
+        "CHF": 3200000.0,
+        "EUR": -220000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "EUR",
+          "day": 4,
+          "amount": 1100000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 5,
+          "amount": -1300000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S16",
+      "name": "Need below the minimum ticket",
+      "narrative": "A trivial dollar payable against a dealing desk that will not quote below half a million.",
+      "expectation": "No legal plan exists. Expect NO FEASIBLE PLAN -- the honest answer, not a defect.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 2000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -12000.0
+        }
+      ],
+      "min_trade": 500000.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S17",
+      "name": "Straddling a commission tier",
+      "narrative": "The dollar payable sits just above the first commission band, so the cheap tier must be filled before the expensive one is used.",
+      "expectation": "A steep retail schedule and a wide dealing spread, with the need crossing two bands. Check the commission and spread lines in the breakdown.",
+      "base_ccy": "EUR",
+      "currencies": [
+        "EUR",
+        "USD"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "wide",
+      "commission_profile": "retail",
+      "commission_tiers": [
+        {
+          "threshold": 100000,
+          "rate_bps": 60.0
+        },
+        {
+          "threshold": 1000000,
+          "rate_bps": 35.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 20.0
+        }
+      ],
+      "day_count_basis": {
+        "EUR": 360,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "EUR": 1.65,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "EUR": 4.15,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.9251851852,
+            "ask": 0.9266666667
+          },
+          "T1": {
+            "bid": 0.9251312224,
+            "ask": 0.9266126175
+          },
+          "T2": {
+            "bid": 0.9250772724,
+            "ask": 0.9265585811
+          }
+        }
+      },
+      "opening_balances": {
+        "EUR": 3000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 4,
+          "amount": -1150000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S18",
+      "name": "Several currencies overdrawn",
+      "narrative": "Three foreign accounts start the week short and nothing arrives to help. Everything has to be funded from base.",
+      "expectation": "Three buys, each sized to its own overdraft, all inside the settlement window.",
+      "base_ccy": "USD",
+      "currencies": [
+        "USD",
+        "GBP",
+        "EUR",
+        "CHF"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "USD": 360,
+        "GBP": 365,
+        "EUR": 360,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "USD": 3.75,
+        "GBP": 3.5,
+        "EUR": 1.65,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "USD": 6.25,
+        "GBP": 6.0,
+        "EUR": 4.15,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "GBP": {
+          "T0": {
+            "bid": 1.26548355,
+            "ask": 1.26611645
+          },
+          "T1": {
+            "bid": 1.2654942631,
+            "ask": 1.2661271684
+          },
+          "T2": {
+            "bid": 1.2655049738,
+            "ask": 1.2661378845
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 1.07973,
+            "ask": 1.08027
+          },
+          "T1": {
+            "bid": 1.0797929805,
+            "ask": 1.080333012
+          },
+          "T2": {
+            "bid": 1.0798559535,
+            "ask": 1.0803960164
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 1.1360795455,
+            "ask": 1.1366477273
+          },
+          "T1": {
+            "bid": 1.1362057756,
+            "ask": 1.1367740206
+          },
+          "T2": {
+            "bid": 1.1363320041,
+            "ask": 1.1369003121
+          }
+        }
+      },
+      "opening_balances": {
+        "USD": 6000000.0,
+        "GBP": -600000.0,
+        "EUR": -650000.0,
+        "CHF": -300000.0
+      },
+      "cash_flows": [],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S19",
+      "name": "Alternating dollar flows",
+      "narrative": "Pay, receive, pay again in one currency across a single week. The deepest point of the ladder is what has to be funded, not the net.",
+      "expectation": "Netting the week to a single figure would understate the day-1 gap. Two separate fundings, or one plus an overdraft.",
+      "base_ccy": "JPY",
+      "currencies": [
+        "JPY",
+        "USD"
+      ],
+      "horizon_days": 8,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "JPY": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "JPY": 0.1,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "JPY": 2.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 151.962,
+            "ask": 152.038
+          },
+          "T1": {
+            "bid": 151.9461435848,
+            "ask": 152.0221356546
+          },
+          "T2": {
+            "bid": 151.9302909127,
+            "ask": 152.0062750542
+          }
+        }
+      },
+      "opening_balances": {
+        "JPY": 400000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 1,
+          "amount": -700000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": 1100000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 6,
+          "amount": -900000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    },
+    {
+      "id": "S20",
+      "name": "Genuinely insufficient funds",
+      "narrative": "Obligations exceed everything the account holds, however the trades are arranged. A financing question, not a constraint conflict.",
+      "expectation": "A plan is still returned, with INSUFFICIENT FUNDS set and a negative terminal base equivalent showing how much is short and when.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD",
+        "EUR"
+      ],
+      "horizon_days": 7,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "wide",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360,
+        "EUR": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75,
+        "EUR": 1.65
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25,
+        "EUR": 4.15
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7893822089,
+            "ask": 0.7906462316
+          },
+          "T1": {
+            "bid": 0.7893755264,
+            "ask": 0.7906395384
+          },
+          "T2": {
+            "bid": 0.7893688454,
+            "ask": 0.7906328468
+          }
+        },
+        "EUR": {
+          "T0": {
+            "bid": 0.8525327856,
+            "ask": 0.8538979302
+          },
+          "T1": {
+            "bid": 0.8525752961,
+            "ask": 0.8539405088
+          },
+          "T2": {
+            "bid": 0.8526178016,
+            "ask": 0.8539830823
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 250000.0,
+        "USD": 0.0,
+        "EUR": 0.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -2400000.0
+        },
+        {
+          "ccy": "EUR",
+          "day": 5,
+          "amount": -1800000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000
+    }
+  ]
+}
