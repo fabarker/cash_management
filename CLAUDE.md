@@ -157,13 +157,20 @@ which returns `None` for absent keys — much of the code branches on that.
 
 `ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which mutates the
 shared `Config`) switches off `terminal_sweep`, `no_loop`, `anti_speculative`,
-`no_carry_trade`, `phasing`. Balance evolution, balance decomposition, activation
-linking and commission-tier linking are structural and always applied.
+`no_carry_trade`. Balance evolution, balance decomposition, activation linking and
+commission-tier linking are structural and always applied.
 
 `_add_no_carry_trade_constraint` carries a long docstring explaining its business rules
 (sweep deadline / monotonic drawdown / buy blocking). Read it before touching that
 constraint — it encodes specific fixes for infeasibility traps a naive reformulation
 will reintroduce.
+
+There was also **phasing** — `PhasingPlan`, a `phasing` flag, and a ring-fenced floor
+on the balance of a currency being deployed in tranches. **It has been removed.** It
+crashed on a currency not already held (the natural case, since you phase into
+something you have yet to buy), could not be used alongside the no-carry rule, and
+applied its tolerance in the wrong direction — a 2% tolerance forced 102% to be held
+rather than permitting a 2% shortfall.
 
 There was also a reserve subsystem — `Config.min_reserve`, a `reserve` flag, and
 per-currency `reserve` / `res_outflows` / `res_batched` variables. **It has been deleted.**
