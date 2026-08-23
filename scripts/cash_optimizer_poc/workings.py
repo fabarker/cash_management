@@ -61,11 +61,25 @@ def _rate(x: float) -> str:
     return f"{x:,.6f}" if abs(x) < 1 else f"{x:,.4f}"
 
 
-def cost_workings(manager: Any, result: Any) -> List[Component]:
-    """Return the six cost components, each with its derivation.
+def cost_workings(manager: Any, result: Any,
+                  value_impact: bool = False) -> List[Component]:
+    """Return the cost components, each with its derivation.
 
     ``manager`` is a ``CashManager``; ``result`` the ``Result`` it produced.
+
+    With ``value_impact=False`` (the default) figures follow the model's own
+    convention: a cost is positive, because the objective is a cost and is
+    minimised.  With ``value_impact=True`` every sign is flipped, so a cost
+    reads negative and a benefit positive, which is how money moving in and
+    out of an account normally reads.
+
+    The flip is not applied to the number alone.  Each derivation is written
+    so its own arithmetic produces the sign shown -- a row whose figure says
+    -148.13 while its formula works out to +148.13 is worse than no formula.
+    The self-check below always compares against the model in the model's
+    convention, whichever way the display is set.
     """
+    sgn = -1.0 if value_impact else 1.0
     cfg = manager.config
     base = cfg.base_ccy
     base_label = f"{base} (Base)"
@@ -88,11 +102,11 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
         for d in range(cfg.horizon_days) if (base_label, d) in bal
     )
     if base_debit_days > _EPS:
-        amount = base_debit_bps / 1e4 * base_debit_days
+        amount = sgn * base_debit_bps / 1e4 * base_debit_days
         debit.value += amount
         debit.lines.append(
-            f"{base} {_fmt(base_debit_bps, 4)}bps/day x "
-            f"{_fmt(base_debit_days, 0)} overdrawn balance-days = {_fmt(amount)}"
+            f"{base} {'-' if value_impact else ''}{_fmt(base_debit_bps, 4)}bps/day "
+            f"x {_fmt(base_debit_days, 0)} overdrawn balance-days = {_fmt(amount)}"
         )
 
     # ── Per foreign currency ──────────────────────────────────
@@ -112,20 +126,23 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
         )
 
         if abs(credit_days) > _EPS and abs(net_bps) > 1e-9:
-            amount = net_bps / 1e4 * s_bid * credit_days
+            amount = sgn * net_bps / 1e4 * s_bid * credit_days
             credit.value += amount
+            a, b = base_credit_bps, cfg.credit_carry_bps_per_day[ccy]
+            if value_impact:
+                a, b = b, a          # foreign earned less base foregone
             credit.lines.append(
-                f"{ccy} ({_fmt(base_credit_bps, 4)} - "
-                f"{_fmt(cfg.credit_carry_bps_per_day[ccy], 4)})bps/day x "
+                f"{ccy} ({_fmt(a, 4)} - {_fmt(b, 4)})bps/day x "
                 f"{_rate(s_bid)} bid x {_fmt(credit_days, 0)} balance-days "
                 f"= {_fmt(amount)}"
             )
         if debit_days > _EPS:
-            amount = debit_bps / 1e4 * s_ask * debit_days
+            amount = sgn * debit_bps / 1e4 * s_ask * debit_days
             debit.value += amount
             debit.lines.append(
-                f"{ccy} {_fmt(debit_bps, 4)}bps/day x {_rate(s_ask)} ask x "
-                f"{_fmt(debit_days, 0)} overdrawn balance-days = {_fmt(amount)}"
+                f"{ccy} {'-' if value_impact else ''}{_fmt(debit_bps, 4)}bps/day "
+                f"x {_rate(s_ask)} ask x {_fmt(debit_days, 0)} overdrawn "
+                f"balance-days = {_fmt(amount)}"
             )
 
     # ── Trades ────────────────────────────────────────────────
@@ -142,21 +159,24 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
         s_mid = cfg.fx_spot_mid(ccy)
 
         fee_foreign, bands = _tiered(cfg, amount)
-        amount_base = rate * fee_foreign
+        amount_base = sgn * rate * fee_foreign
         commission.value += amount_base
         commission.lines.append(
             f"{ccy} day {day} {'buy' if buying else 'sell'} "
-            f"{_fmt(amount, 0)} ({bands}) x {_rate(rate)} {tenor} "
-            f"{'ask' if buying else 'bid'} = {_fmt(amount_base)}"
+            f"{_fmt(amount, 0)} {'-' if value_impact else ''}({bands}) x "
+            f"{_rate(rate)} {tenor} {'ask' if buying else 'bid'} "
+            f"= {_fmt(amount_base)}"
         )
 
         if cfg.value_trade_rates:
             half = (rate - s_mid) if buying else (s_mid - rate)
-            amount_base = half * amount
+            amount_base = sgn * half * amount
             spread.value += amount_base
+            dealt = f"{_rate(rate)} {tenor} {'ask' if buying else 'bid'}"
+            ref = f"{_rate(s_mid)} spot mid"
+            first, second = (ref, dealt) if value_impact else (dealt, ref)
             spread.lines.append(
-                f"{ccy} day {day} ({_rate(rate)} {tenor} "
-                f"{'ask' if buying else 'bid'} - {_rate(s_mid)} spot mid) x "
+                f"{ccy} day {day} ({first} - {second}) x "
                 f"{_fmt(amount, 0)} = {_fmt(amount_base)}"
             )
 
@@ -171,21 +191,20 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
             s_bid, s_ask = cfg.fx_spot_bid(ccy), cfg.fx_spot_ask(ccy)
             s_mid = cfg.fx_spot_mid(ccy)
             if snap.credit > _EPS:
-                amount = ((s_mid - s_bid) + unwind_bps * s_bid) * snap.credit
+                amount = sgn * ((s_mid - s_bid) + unwind_bps * s_bid) * snap.credit
                 unwind.value += amount
                 unwind.lines.append(
                     f"{ccy} {_fmt(snap.credit, 0)} still held on day {last}: "
-                    f"(half-spread + {_fmt(cfg.commission_tiers[0].rate_bps, 1)}bps) "
-                    f"= {_fmt(amount)}"
+                    f"{'-' if value_impact else ''}(half-spread + "
+                    f"{_fmt(cfg.commission_tiers[0].rate_bps, 1)}bps) = {_fmt(amount)}"
                 )
             if snap.debit > _EPS:
-                amount = ((s_ask - s_mid) + unwind_bps * s_ask) * snap.debit
+                amount = sgn * ((s_ask - s_mid) + unwind_bps * s_ask) * snap.debit
                 unwind.value += amount
                 unwind.lines.append(
                     f"{ccy} {_fmt(snap.debit, 0)} still overdrawn on day "
-                    f"{last}: (half-spread + "
-                    f"{_fmt(cfg.commission_tiers[0].rate_bps, 1)}bps) "
-                    f"= {_fmt(amount)}"
+                    f"{last}: {'-' if value_impact else ''}(half-spread + "
+                    f"{_fmt(cfg.commission_tiers[0].rate_bps, 1)}bps) = {_fmt(amount)}"
                 )
 
     components = [credit, debit, commission, spread, unwind]
@@ -200,14 +219,14 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
         "terminal_unwind": truth.terminal_unwind_cost,
     }
     for c in components:
-        c.reconciles = abs(c.value - expected[c.key]) < 5e-4
+        c.reconciles = abs(sgn * c.value - expected[c.key]) < 5e-4
         if not c.reconciles:
             # Trust the model, not this module, and say the workings are off.
             c.lines = [
-                f"workings do not reconcile: derived {_fmt(c.value, 4)} "
+                f"workings do not reconcile: derived {_fmt(sgn * c.value, 4)} "
                 f"against {_fmt(expected[c.key], 4)} from the cost model"
             ]
-            c.value = expected[c.key]
+            c.value = sgn * expected[c.key]
 
     return components
 

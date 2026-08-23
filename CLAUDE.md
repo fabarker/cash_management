@@ -376,6 +376,16 @@ gamed by selling a sliver of currency purely to manufacture the overdraft it loo
   parity the points and the carry differential are one quantity seen from two sides,
   charged once here and once there, and they net. `models.py` calls it "Rate vs
   reference" for this reason; `workings.py` now agrees.
+- **The web page's cost table is sign-flipped; nothing else is.** The model is a
+  cost and is minimised, so in `Result`, `CostBreakdown` and `print_cost()` a cost
+  is **positive**. The Cash Management page shows the reverse — a cost negative, a
+  benefit positive — because that is how money leaving an account reads. The flip
+  lives in `workings.cost_workings(value_impact=True)`, which negates the figures
+  *and* rewrites each derivation so its own arithmetic produces the sign shown; a
+  row reading -148.13 beside a formula that works out to +148.13 would be worse
+  than no formula. Its self-check always compares against the model in the model's
+  convention. `Result.total_cost` and the page's NET VALUE IMPACT are therefore
+  the same number with opposite signs — anything comparing the two must flip one.
 - **The after-cost ladder is display-only** — `Result.compute_after_cost_balances()` accrues
   per-currency interest and deducts commission on the settlement day, and does not feed back
   into the objective.

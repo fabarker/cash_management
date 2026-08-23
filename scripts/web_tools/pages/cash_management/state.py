@@ -399,6 +399,12 @@ class CashManagementState:
     def get_cost_components(self) -> List[Dict[str, Any]]:
         """Return each cost line with the arithmetic that produced it.
 
+        Returned in **value-impact** convention: a cost is negative and a
+        benefit positive, which is how money leaving and entering an account
+        normally reads.  The model itself works the other way round, because
+        its objective is a cost and is minimised -- so anything comparing
+        these figures against ``result.total_cost`` has to flip the sign.
+
         The workings come from ``cash_optimizer_poc.workings``, which derives
         them independently and then checks itself against the cost model.  A
         line whose ``reconciles`` flag is False is telling you the derivation
@@ -417,7 +423,8 @@ class CashManagementState:
                 'workings': c.workings,
                 'reconciles': c.reconciles,
             }
-            for c in cost_workings(self.cash_manager, self.optimal_result)
+            for c in cost_workings(self.cash_manager, self.optimal_result,
+                                   value_impact=True)
         ]
 
     # ── Private helpers ───────────────────────────────────────

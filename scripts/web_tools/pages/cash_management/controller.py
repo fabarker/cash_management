@@ -566,11 +566,17 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
     def _render_cost_breakdown(self, costs: Dict[str, float]) -> None:
         """Populate the cost breakdown, each line with its own arithmetic.
 
-        The figure on its own says how much; the workings beside it say
-        where it came from -- which tier of the commission schedule, how
-        many balance-days at what rate, which side of the spread.  Those
-        derivations are checked against the cost model before they are
-        rendered, and a line that failed the check says so instead.
+        Shown in value-impact convention: a cost is negative, a benefit
+        positive.  That is the opposite of the objective, which is a cost and
+        is minimised, so the total here is the negative of
+        ``result.total_cost``.  The workings flip with it -- each derivation
+        is written so its own arithmetic produces the sign beside it.
+
+        The figure on its own says how much; the workings say where it came
+        from -- which tier of the commission schedule, how many balance-days
+        at what rate, which side of the quote.  Those derivations are checked
+        against the cost model before they are rendered, and a line that
+        failed the check says so instead.
         """
         self.refs.cost_breakdown_container.clear()
 
@@ -581,14 +587,22 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                         sanitize=False)
             return
 
+        # Value-impact colours: negative is money given up, positive is money
+        # gained.  This is the reverse of the cost convention the model uses.
         def money(value: float) -> str:
             if value < -0.00005:
-                return 'color: #2e7d32;'
-            if value > 0.00005:
                 return 'color: #c62828;'
+            if value > 0.00005:
+                return 'color: #2e7d32;'
             return 'color: #495057;'
 
-        rows_html = ''
+        rows_html = (
+            '<div style="font-size: 12px; color: #6c757d; margin-bottom: 10px;">'
+            'Negative is value given up, positive is value gained. The total is '
+            'what the plan costs against a frictionless book dealt at spot mid.'
+            '</div>'
+        )
+
         running = 0.0
         for comp in components:
             value = comp['value']
@@ -613,7 +627,9 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                 f'</div>'
             )
 
-        total = costs.get('total', running)
+        # costs['total'] comes straight from the model, so it is a cost and
+        # positive; flip it to match the rows above.
+        total = -costs['total'] if 'total' in costs else running
 
         # The lines above must reconcile to the total.  They have not always:
         # two components were missing and the table silently understated
@@ -633,10 +649,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                 f'</div>'
             )
 
-        total_color = '#2e7d32' if total < -0.005 else '#c62828' if total > 0.005 else '#1F3864'
+        total_color = '#c62828' if total < -0.005 else '#2e7d32' if total > 0.005 else '#1F3864'
         rows_html += (
             f'<div class="cost-row total" style="align-items: baseline;">'
-            f'<div style="color: #1F3864; flex: 0 0 220px;">TOTAL COST</div>'
+            f'<div style="color: #1F3864; flex: 0 0 220px;">NET VALUE IMPACT</div>'
             f'<div style="font-variant-numeric: tabular-nums; '
             f'flex: 0 0 120px; text-align: right; color: {total_color};">'
             f'{total:,.4f}</div>'
