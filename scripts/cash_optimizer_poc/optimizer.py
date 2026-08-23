@@ -98,6 +98,17 @@ class CashOptimizer:
         self.foreign_ccys = [c for c in self.currencies if c != cfg.base_ccy]
         self._check_market_data()
 
+        fallback = [c for c in self.cfg.currencies_on_default_day_count()
+                    if c in self.currencies]
+        if fallback:
+            log.warning(
+                "No day-count basis given for %s; falling back to ACT/%d. A "
+                "wrong basis mis-states that currency's interest by about "
+                "1.4%%, charged in full on an overdraft. Add it to "
+                "Config.day_count_basis.",
+                ", ".join(fallback), self.cfg.default_day_count,
+            )
+
         self.active_foreign_ccys = self._compute_active_foreign_ccys()
         self.balance_bounds = self._compute_balance_bounds()
         self._check_balance_bounds()

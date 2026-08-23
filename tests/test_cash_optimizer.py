@@ -775,6 +775,60 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestDayCount(CostAssertions):
+    """Interest accrues on a day count that varies by currency.  One divisor
+    for everything mis-states any currency that does not match it by
+    365/360 - 1 = 1.39%, charged in full on an overdraft (F25)."""
+
+    def test_each_currency_uses_its_own_basis(self):
+        cfg = Config()
+        self.assertEqual(cfg.day_count("GBP"), 365)
+        self.assertEqual(cfg.day_count("USD"), 360)
+        self.assertEqual(cfg.day_count("EUR"), 360)
+
+    def test_yen_is_act_365_not_360(self):
+        # The correction that prompted the map: it is not "sterling is 365
+        # and everything else is 360".
+        cfg = Config()
+        for ccy in ("JPY", "CAD", "AUD", "NZD", "HKD", "SGD"):
+            with self.subTest(ccy=ccy):
+                self.assertEqual(cfg.day_count(ccy), 365)
+
+    def test_the_daily_rate_follows_the_basis(self):
+        cfg = Config()
+        self.assertCostClose(cfg.credit_carry_bps_per_day["USD"],
+                             cfg.credit_carry_pa["USD"] * 100.0 / 360.0)
+        self.assertCostClose(cfg.credit_carry_bps_per_day["GBP"],
+                             cfg.credit_carry_pa["GBP"] * 100.0 / 365.0)
+
+    def test_overdraft_interest_is_no_longer_understated(self):
+        cfg = Config()
+        now = cfg.debit_carry_bps_per_day["USD"]
+        before = cfg.debit_carry_pa["USD"] * 100.0 / 365.0
+        self.assertGreater(now, before)
+        self.assertCostClose(now / before, 365.0 / 360.0)
+
+    def test_the_map_can_be_overridden(self):
+        cfg = Config(day_count_basis={**Config().day_count_basis, "USD": 365})
+        self.assertEqual(cfg.day_count("USD"), 365)
+
+    def test_an_unlisted_currency_falls_back_and_is_reported(self):
+        cfg = Config()
+        self.assertEqual(cfg.day_count("XYZ"), cfg.default_day_count)
+        listed = Config(credit_carry_pa={"GBP": 3.65, "USD": 0.5, "EUR": 0.2,
+                                         "JPY": 0.01, "BRL": 10.0},
+                        debit_carry_pa={"GBP": 5.0, "USD": 5.0, "EUR": 4.5,
+                                        "JPY": 3.0, "BRL": 14.0})
+        self.assertIn("BRL", listed.currencies_on_default_day_count())
+        self.assertNotIn("USD", listed.currencies_on_default_day_count())
+
+    def test_a_non_positive_basis_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Config(day_count_basis={"GBP": 0})
+        with self.assertRaises(ValueError):
+            Config(default_day_count=0)
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""

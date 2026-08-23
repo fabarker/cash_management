@@ -117,6 +117,13 @@ which returns `None` for absent keys — much of the code branches on that.
   extraction so output shape stays stable.
 - `solve()` is single-shot: it raises on a second call, so build a fresh `CashOptimizer`
   (or call `mgr.solve_optimal()` again, which constructs one) to re-solve.
+- **Interest accrues on a day count that varies by currency.**
+  `Config.day_count_basis` maps each currency to the number of days its market treats
+  as a year; `Config.day_count(ccy)` reads it, falling back to `default_day_count`
+  (360, the more common convention) with a logged warning. It is *not* "sterling is 365
+  and everything else is 360" — JPY, CAD, AUD, NZD, HKD and SGD are also ACT/365. One
+  divisor for everything understated non-matching currencies by 1.39%, charged in full
+  on an overdraft. Check the map against whatever supplies your rates.
 - **Non-finite numbers are rejected at the door.** NaN or infinity in a cash flow,
   opening balance, FX quote or carry rate raises immediately, naming the currency and
   day. NaN is the dangerous one: every comparison against it is false, so

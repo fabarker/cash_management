@@ -207,19 +207,56 @@ class Config:
         "GBP": 5.0, "USD": 5.0, "EUR": 4.5, "JPY": 3.0,
     })
 
-    # Number of days per year for de-annualisation.
-    days_per_year: int = 365
+    # Money-market day count per currency: how many days the market treats
+    # as a year when accruing interest.
+    #
+    # This is a convention, not a fact, and it differs by currency — it is
+    # how the interest is actually contracted.  Dividing an annual rate by
+    # 365 when the market divides by 360 understates every day's interest
+    # by 365/360 - 1 = 1.39%, which is charged in full on an overdraft.
+    #
+    # It is NOT "sterling is 365 and everything else is 360": yen, Canadian
+    # and Australian dollars and several Asian currencies are also ACT/365.
+    # Check this map against whatever supplies your rates before relying on
+    # it for a currency that matters.
+    day_count_basis: Dict[str, int] = field(default_factory=lambda: {
+        # ACT/365
+        "GBP": 365, "JPY": 365, "AUD": 365, "NZD": 365,
+        "CAD": 365, "HKD": 365, "SGD": 365, "ZAR": 365,
+        # ACT/360
+        "USD": 360, "EUR": 360, "CHF": 360,
+        "SEK": 360, "NOK": 360, "DKK": 360,
+    })
+
+    # Basis for a currency absent from the map above.  360 is the more
+    # common convention worldwide, so it is the safer default — but a
+    # currency you rely on belongs in the map, not on this fallback.
+    default_day_count: int = 360
+
+    def day_count(self, ccy: str) -> int:
+        """Days-in-a-year basis used to accrue interest in *ccy*."""
+        return self.day_count_basis.get(ccy, self.default_day_count)
+
+    def currencies_on_default_day_count(self) -> List[str]:
+        """Currencies falling back rather than named in the map.
+
+        Worth surfacing: a fallback is a guess about a market convention,
+        and a wrong guess mis-states that currency's interest by 1.39%.
+        """
+        named = set(self.day_count_basis)
+        seen = set(self.credit_carry_pa) | set(self.debit_carry_pa)
+        return sorted(seen - named)
 
     @property
     def credit_carry_bps_per_day(self) -> Dict[str, float]:
-        """Daily credit carry in bps, derived from annualised percentage."""
-        return {ccy: rate * 100.0 / self.days_per_year
+        """Daily credit carry in bps, on each currency's own day count."""
+        return {ccy: rate * 100.0 / self.day_count(ccy)
                 for ccy, rate in self.credit_carry_pa.items()}
 
     @property
     def debit_carry_bps_per_day(self) -> Dict[str, float]:
-        """Daily debit carry in bps, derived from annualised percentage."""
-        return {ccy: rate * 100.0 / self.days_per_year
+        """Daily debit carry in bps, on each currency's own day count."""
+        return {ccy: rate * 100.0 / self.day_count(ccy)
                 for ccy, rate in self.debit_carry_pa.items()}
 
     # FX exposure penalty (bps per day on absolute position)
@@ -428,6 +465,17 @@ class Config:
             raise ValueError(
                 f"min_balance_ceiling must be positive, "
                 f"got {self.min_balance_ceiling}"
+            )
+
+        for ccy, basis in self.day_count_basis.items():
+            if basis <= 0:
+                raise ValueError(
+                    f"day_count_basis[{ccy!r}] must be positive, got {basis}"
+                )
+        if self.default_day_count <= 0:
+            raise ValueError(
+                f"default_day_count must be positive, "
+                f"got {self.default_day_count}"
             )
 
         if self.anti_speculative_tolerance < 0:
