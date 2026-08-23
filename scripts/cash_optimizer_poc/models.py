@@ -677,16 +677,26 @@ class ManualTrade:
 @dataclass
 class CostBreakdown:
     """
-    Itemised cost breakdown for a set of manually-specified trades,
-    computed using the same cost model as the optimizer.
+    Itemised cost breakdown for a set of trades, computed using the same
+    cost model as the optimizer.
 
     All values are in base currency.
+
+    This is the single definition.  It used to be declared here *and* again
+    in ``cash_manager``, where the second shadowed the first — and the two
+    drifted apart, the local copy gaining the rate and unwind terms while
+    this one kept summing four components and quietly understating every
+    total by the spread.
     """
 
     credit_carry_cost: float = 0.0
     debit_carry_cost: float = 0.0
     fx_exposure_cost: float = 0.0
     commission_cost: float = 0.0
+    # Rate paid away against the reference rate (finding F4).
+    spread_cost: float = 0.0
+    # Cost of unwinding anything still held at the end of the horizon.
+    terminal_unwind_cost: float = 0.0
 
     @property
     def total_cost(self) -> float:
@@ -696,6 +706,8 @@ class CostBreakdown:
             + self.debit_carry_cost
             + self.fx_exposure_cost
             + self.commission_cost
+            + self.spread_cost
+            + self.terminal_unwind_cost
         )
 
     def format(self, indent: str = "  ") -> str:
@@ -705,6 +717,8 @@ class CostBreakdown:
             f"{indent}Debit carry (overdraft)     : {self.debit_carry_cost:>14,.4f}",
             f"{indent}FX exposure penalty         : {self.fx_exposure_cost:>14,.4f}",
             f"{indent}Commission                  : {self.commission_cost:>14,.4f}",
+            f"{indent}Rate vs reference           : {self.spread_cost:>14,.4f}",
+            f"{indent}Terminal unwind             : {self.terminal_unwind_cost:>14,.4f}",
             f"{indent}{'─' * 44}",
             f"{indent}TOTAL COST                  : {self.total_cost:>14,.4f}",
         ]

@@ -221,16 +221,16 @@ previous day's sign binary.
   any residual position. `Result.reference_value - total_cost` is exactly the base
   currency the plan delivers. Keep new objective terms at spread scale: notional-
   scale terms would swamp the relative threshold the optimality check relies on.
-- **`ManualTrade` and `CostBreakdown` are defined twice.** `cash_manager.py` imports both
-  from `models.py` and then redefines them below the import, so the local definitions win.
-  The `cash_manager` `CostBreakdown` carries extra `spread_cost` / `slippage_cost` fields
-  that nothing ever populates (spread is embedded in bid/ask). Anything importing from
-  `models.py` gets the other class — do not assume identity.
 - **Base currency rows are labelled `"GBP (Base)"`**, not `"GBP"`, in `BalanceSnapshot`,
   `CashLadderEntry` and `CashFlowEntry`. Lookups recover the code with `.split(" ")[0]`.
   A dict keyed on `b.ccy` will not match `cfg.base_ccy`.
 - **`utils.py` calls `logging.basicConfig` at import time**, so importing anything in the
   package configures root logging at INFO.
+- **`ManualTrade` and `CostBreakdown` have one definition each, in `models.py`.** They
+  used to be declared there and again in `cash_manager.py`, where the second shadowed the
+  first — and the two `CostBreakdown`s drifted, the local copy gaining the F4 rate and
+  unwind terms while the other kept summing four components and understating every total
+  by the spread. Import from either module now; it is the same class.
 - **The cost model is still written out four times** — the LP objective,
   `CashManager._compute_cost()`, `Result._compute_balance_costs()` and
   `Result._tenor_decomposition_row()`. Any change to the economics has to land in

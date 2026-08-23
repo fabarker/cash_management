@@ -19,6 +19,7 @@ logging.disable(logging.INFO)
 
 from scripts.cash_optimizer_poc.models import (
     CashFlowSet,
+    CostBreakdown,
     CommissionTier,
     Config,
     ConstraintFlags,
@@ -773,6 +774,51 @@ class TestCurrencyDiscovery(CostAssertions):
             CashOptimizer(Config(fx_quotes=quotes), cf,
                           opening_balances={"GBP": 5_000_000})
         self.assertIn("credit_carry_pa", str(ctx.exception))
+
+
+class TestSingleClassDefinitions(CostAssertions):
+    """ManualTrade and CostBreakdown were declared in models and again in
+    cash_manager, the second shadowing the first.  The two CostBreakdowns
+    then drifted apart: the local copy gained the rate and unwind terms
+    while the other kept summing four components, so anything importing
+    from models understated every total by the spread (F24)."""
+
+    def test_there_is_one_definition_of_each(self):
+        import scripts.cash_optimizer_poc.cash_manager as cash_manager
+        import scripts.cash_optimizer_poc.models as models
+        for name in ("ManualTrade", "CostBreakdown"):
+            with self.subTest(name=name):
+                self.assertIs(getattr(cash_manager, name),
+                              getattr(models, name),
+                              "importing from either module must give the "
+                              "same class")
+
+    def test_the_total_includes_every_component(self):
+        breakdown = CostBreakdown(
+            credit_carry_cost=10.0, debit_carry_cost=5.0,
+            fx_exposure_cost=2.0, commission_cost=100.0,
+            spread_cost=20.0, terminal_unwind_cost=3.0,
+        )
+        self.assertCostClose(breakdown.total_cost, 140.0)
+
+    def test_the_rate_term_reaches_the_total(self):
+        # The exact regression the duplication caused.
+        without = CostBreakdown(commission_cost=158.04)
+        with_rate = CostBreakdown(commission_cost=158.04, spread_cost=20.0)
+        self.assertCostClose(with_rate.total_cost - without.total_cost, 20.0)
+
+    def test_the_manual_evaluator_matches_the_optimizer(self):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        manager = CashManager(cfg, cf, opening_balances={"GBP": 5_000_000})
+        optimal = manager.solve_optimal()
+        replay = manager.execute_trades(
+            [ManualTrade(t.ccy, t.day, t.tenor, t.direction, t.amount)
+             for t in optimal.trades])
+        self.assertCostClose(replay.total_cost, optimal.total_cost)
+        self.assertGreater(replay.cost_breakdown.spread_cost, 0.0,
+                           "the rate term should be populated, not dropped")
 
 
 class TestConfigIsolation(CostAssertions):
