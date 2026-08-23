@@ -22,12 +22,19 @@ undo any one of them individually.
 python -m unittest discover -s tests -v    # from the repository root
 ```
 
-37 cases, ~6 seconds. Each class maps to a finding from the model audit.
-`TestKnownOpenFindings` asserts behaviour that is still *broken on purpose*
-(F5, F7, F12, F17) so that fixing one fails loudly and prompts an update.
+118 cases, ~15 seconds. Most classes map to a finding from the model audit.
+`TestKnownOpenFindings` is now empty — it held tests asserting behaviour that was
+still broken on purpose, so that fixing one would fail loudly; every finding it
+tracked has since been fixed. Keep the class: it is where the next known-broken
+behaviour goes.
+
 `TestOptimizationInvariants` encodes properties any correct optimiser must
 satisfy — relaxing a constraint cannot raise the optimum, the objective cannot
 fall below the LP bound — which is how the original solver defect was caught.
+`TestHoldingCorridor` covers the anti-speculation policy, and its last test is a
+deliberate tripwire: it asserts the minimum-ticket wash route is *open* with
+`no_loop` off, so if the corridor ever grows to cover that route the suite says so
+rather than leaving a now-redundant constraint in place unexamined.
 
 ## Running
 
@@ -171,15 +178,70 @@ which returns `None` for absent keys — much of the code branches on that.
 
 ### Constraint toggles
 
-`ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which mutates the
-shared `Config`) switches off `terminal_sweep`, `no_loop`, `anti_speculative`,
-`no_carry_trade`. Balance evolution, balance decomposition, activation linking and
-commission-tier linking are structural and always applied.
+`ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which takes a
+copy) switches off `terminal_sweep`, `no_loop`, `holding_ceiling`. Balance evolution,
+balance decomposition, activation linking and commission-tier linking are structural
+and always applied.
 
-`_add_no_carry_trade_constraint` carries a long docstring explaining its business rules
-(sweep deadline / monotonic drawdown / buy blocking). Read it before touching that
-constraint — it encodes specific fixes for infeasibility traps a naive reformulation
-will reintroduce.
+**`holding_ceiling` is the whole anti-speculation policy.** Two bounds per currency
+per day, keeping the balance inside the corridor the cash flows themselves define:
+
+```
+bal_pos[d] <= hole reachable from a trade dealt today
+              + the part of the do-nothing holding an outflow will consume
+bal_neg[d] <= the deepest overdraft the cash flows themselves dig
+```
+
+Everything is read off `_do_nothing_ladder(ccy)` — opening balance plus that
+currency's own cash flows, no trades — so the rule sees an opening overdraft, which
+is what a rule keyed on the cash flow file cannot.
+
+The reach window (`d .. d + max_lag`) on the first term is what makes it
+anti-speculation rather than a size limit: if a payment can always be funded by
+dealing at the longest tenor, owning the currency earlier is a position, not funding,
+so the ceiling is simply zero until the obligation comes within dealing range.
+
+Four details are load-bearing, each of them a bug that testing caught:
+
+- **The earmark term is not optional.** The hole is measured on the do-nothing
+  ladder, which already contains the receipts, so a receipt covering a later payment
+  digs no hole. A hole-only ceiling forbids holding money the account was always
+  going to spend, and the model's only escape is to sell it and buy it back for two
+  spreads and two commissions. This is the mirror of the netting defect the old
+  cumulative cap's docstring warns about.
+- **The carve-out window is `max_lag`, not `min_lag`.** Money already on the books
+  before any trade could have been dealt against it needs the settlement window to be
+  cleared. Narrowing it forces a T+0 exit on day nought, which gains nothing — the
+  position is contracted away the moment the trade is dealt — but removes the choice
+  of tenor and the better forward rate with it.
+- **The floor matters as much as the ceiling.** A bound on `bal_pos` alone leaves the
+  short side wide open, and selling currency you do not own is the same speculation
+  in reverse. Doing nothing lands exactly on the floor and trading can only lift you
+  off it, so it forbids nothing the account can genuinely experience.
+- **`no_loop` is not dead weight.** It looks inert, and against a *cheap* wash trade
+  it is — the objective rejects one at any spread, even at zero commission. It binds
+  where a wash trade is **forced**: give the model a need below `min_trade` and it
+  deals two legal tickets netting to an illegal amount, and the corridor cannot see
+  it because the position nets to zero on every day.
+  `TestHoldingCorridor.test_a_wash_trade_cannot_manufacture_a_legal_ticket` is a
+  tripwire for this — it asserts the route is *open* with `no_loop` off, so if the
+  corridor ever grows to cover it the test says so.
+
+Removed, and worth knowing why so they are not reintroduced:
+
+- **`anti_speculative`** capped *cumulative purchases* at the deepest reachable
+  shortfall. The corridor caps the *position* instead, which also reaches currency
+  that arrived as a receipt — something a purchase cap cannot see at all — and does
+  not constrain the path to a position, only the position. That is why several
+  scenarios got cheaper without holding a penny more.
+- **`no_carry_trade`** was three rules under one flag. Only the sweep deadline ever
+  changed an answer, and the ceiling reproduces it exactly by falling to zero once
+  obligations have passed. The monotonic-drawdown rule never bound anywhere. The
+  buy-blocking rule was strictly dominated by the cumulative cap *and* caused an
+  infeasibility: it read the cash flow file alone, so an opening overdraft granted no
+  permission to buy while the sweep deadline still demanded the balance reach zero.
+
+`_shortfall_profile` survives as a one-line diagnostic over `_do_nothing_ladder`.
 
 There was also **phasing** — `PhasingPlan`, a `phasing` flag, and a ring-fenced floor
 on the balance of a currency being deployed in tranches. **It has been removed.** It
@@ -193,21 +255,16 @@ per-currency `reserve` / `res_outflows` / `res_batched` variables. **It has been
 It could never be enabled (any positive `min_reserve` collided with the terminal sweep,
 which forces the last day's balance to zero), it compared a base-currency floor against a
 foreign-denominated balance, and with the floor at zero the variables were driven to zero
-by a tiny tie-break penalty — so the "RESERVE ATTRIBUTION" block printed zeros in every
-report it ever produced. If a minimum balance is wanted, add it as a direct floor on
-`bal_pos` and fold it into `_shortfall_profile`, the way the phasing ring-fence already
-is; a floor alone is infeasible, because to the anti-speculative cap a balance you must
-hold is currency you have no cash-flow need for.
+by a tiny tie-break penalty. If a minimum balance is wanted, it belongs in
+`_do_nothing_ladder` as the level the balance is measured against, so the ceiling and the
+floor both see it — a floor imposed only as a constraint is infeasible, because to the
+ceiling a balance you must hold is currency you have no cash-flow need for.
 
 There was also a `t0_debit_only` gate, which permitted same-day dealing only in a
 currency already overdrawn at the start of the day. **It has been removed.** It made a
 payment due today infeasible, dominated solve time (four currencies over 20 days went
 from 19s to 0.4s without it; six over 30 days from a 120s timeout to 1.0s), and could be
 gamed by selling a sliver of currency purely to manufacture the overdraft it looked for.
-Removing it changed no other plan by a penny and did not reintroduce speculation — the
-anti-speculative and no-carry rules carry that. If same-day dealing needs restricting
-again, do it as a direct bound on the T0 trade variables rather than a gate keyed on the
-previous day's sign binary.
 
 ## Gotchas
 
@@ -240,6 +297,14 @@ previous day's sign binary.
   first — and the two `CostBreakdown`s drifted, the local copy gaining the F4 rate and
   unwind terms while the other kept summing four components and understating every total
   by the spread. Import from either module now; it is the same class.
+- **A constraint that never binds may still be load-bearing.** `no_loop` was
+  removed on the evidence that nothing it forbade was ever chosen — tested at the
+  narrowest legal spread and at zero commission. That evidence was gathered in the
+  wrong direction. It had to be restored one commit later, because a wash trade can
+  be *forced* by `min_trade` rather than chosen, and the cumulative purchase cap had
+  been hiding that. Before deleting a constraint, ask what makes its target
+  unattractive, and whether every other rule that also makes it unattractive is
+  staying.
 - **The cost model is still written out four times** — the LP objective,
   `CashManager._compute_cost()`, `Result._compute_balance_costs()` and
   `Result._tenor_decomposition_row()`. Any change to the economics has to land in

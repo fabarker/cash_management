@@ -41,8 +41,7 @@ app.config.message_history_length = 10_000  # default is 1000
 
 
 app.add_static_files('/assets', Path(__file__).resolve().parent / 'assets')
-from pmg_core.apps.pmg_web_tools.pages.cash_management import page as cash_management_page  # noqa: F401
-
+from scripts.web_tools.pages.cash_management import page as cash_management_page
 
 def main() -> None:
     ui.run(
