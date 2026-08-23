@@ -162,6 +162,65 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                 )
         return ''.join(parts)
 
+    @staticmethod
+    def _rate_tip(kind: str, ccy: str, pa: float,
+                  bps_per_day: Any, basis: Any) -> str:
+        """Hover tile turning an annual rate into a daily one.
+
+        The day count is part of the answer, not a footnote: sterling
+        accrues on 365 and the dollar on 360, so two rates that look a
+        quarter of a point apart are not a quarter of a point apart per day.
+        """
+        if bps_per_day is None or basis is None:
+            return ''
+        return (
+            f'<span class="rate-tip">'
+            f'<span class="tip-head">{escape(ccy)} {escape(kind.lower())} carry</span>'
+            f'{pa:.2f}% p.a. &divide; {basis} (ACT/{basis}) &times; 10,000<br>'
+            f'= <b>{bps_per_day:.4f} bps/day</b>'
+            f'</span>'
+        )
+
+    @staticmethod
+    def _tenor_tip(ccy: str, tenor: str, quotes: Dict[str, Any],
+                   lags: Dict[str, int], base_ccy: str) -> str:
+        """Hover tile showing the carry a forward quote has priced in.
+
+        Forward points are the interest differential wearing a different
+        hat: a currency yielding more than the base trades at a discount,
+        and the discount per day is the differential per day.  Showing it in
+        bps/day makes that legible next to the credit column, which is in
+        the same unit.
+        """
+        lag = lags.get(tenor)
+        if lag is None or not quotes:
+            return ''
+        ref = min(lags, key=lambda t: lags[t])          # shortest tenor
+        ref_q, own_q = quotes.get(ref), quotes.get(tenor)
+        if ref_q is None or own_q is None:
+            return ''
+        ref_lag = lags[ref]
+        head = f'<span class="tip-head">{escape(ccy)} {escape(tenor)} forward</span>'
+        if lag == ref_lag:
+            return (
+                f'<span class="rate-tip">{head}'
+                f'Nearest leg &mdash; the points on the other<br>'
+                f'tenors are measured from here.</span>'
+            )
+        days = lag - ref_lag
+        pts = own_q.mid - ref_q.mid
+        bpd = pts / ref_q.mid * 10_000 / days
+        lean = ('discount' if pts < 0 else 'premium')
+        who = (f'{escape(ccy)} out-yields {escape(base_ccy)}' if pts < 0
+               else f'{escape(base_ccy)} out-yields {escape(ccy)}')
+        return (
+            f'<span class="rate-tip">{head}'
+            f'{own_q.mid:.6f} &minus; {ref_q.mid:.6f} = {pts:+.6f} over {days}d<br>'
+            f'= <b>{bpd:+.4f} bps/day</b> &mdash; a forward {lean}<br>'
+            f'{who}, so the rate is priced to offset it.'
+            f'</span>'
+        )
+
     def _populate_rates_table(self, info: Dict[str, Any]) -> None:
         """Render FX quotes, credit and debit rates as styled lists.
 
@@ -176,6 +235,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         fx_quotes = info.get('fx_quotes', {})
         credit = info.get('credit_carry_pa', {})
         debit = info.get('debit_carry_pa', {})
+        credit_bpd = info.get('credit_bps_per_day', {})
+        debit_bpd = info.get('debit_bps_per_day', {})
+        basis = info.get('day_count_basis', {})
+        lags = info.get('tenors', {})
 
         # Build a unified currency list, base first
         all_ccys: list = []

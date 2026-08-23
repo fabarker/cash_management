@@ -316,6 +316,13 @@ class CashManagementState:
             'fx_quotes': cfg.fx_quotes,       # {ccy: {tenor: FXTenorQuote}}
             'credit_carry_pa': cfg.credit_carry_pa,
             'debit_carry_pa': cfg.debit_carry_pa,
+            # Daily equivalents and the day count that produced them, so the
+            # page can show where an annual rate turns into a per-day one.
+            'credit_bps_per_day': dict(cfg.credit_carry_bps_per_day),
+            'debit_bps_per_day': dict(cfg.debit_carry_bps_per_day),
+            'day_count_basis': {c: cfg.day_count(c) for c in cfg.currencies},
+            'tenors': dict(cfg.tenors),
+            'spot_tenor': cfg.spot_tenor,
             'commission_tiers': cfg.commission_tiers,
         }
 
