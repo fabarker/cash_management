@@ -289,6 +289,26 @@ class Config:
     # no cash still produces a well-formed model.
     min_balance_ceiling: float = 1_000.0
 
+    # A trade below this is treated as rounding and left out of the
+    # reported plan.  Expressed in BASE currency and converted per currency,
+    # because a flat figure means wildly different things across them: 0.01
+    # of a yen is far below quotable precision, 0.01 of a dollar is not.
+    # The same mistake was found and fixed once before, in the sign-pin
+    # threshold that has since been removed with its constraint.
+    trade_report_floor: float = 0.01
+
+    def trade_report_floor_in(self, ccy: str) -> float:
+        """``trade_report_floor`` expressed in *ccy* units."""
+        if ccy == self.base_ccy:
+            return self.trade_report_floor
+        try:
+            mid = self.fx_spot_mid(ccy)
+            if mid > 0:
+                return self.trade_report_floor / mid
+        except (KeyError, AttributeError):
+            pass
+        return self.trade_report_floor
+
     # Slack on the anti-speculative purchase cap.
     #
     # For a currency with outflows and no inflows the cap is naturally
@@ -497,6 +517,12 @@ class Config:
             raise ValueError(
                 f"default_day_count must be positive, "
                 f"got {self.default_day_count}"
+            )
+
+        if self.trade_report_floor < 0:
+            raise ValueError(
+                f"trade_report_floor must be >= 0, "
+                f"got {self.trade_report_floor}"
             )
 
         if self.anti_speculative_tolerance < 0:

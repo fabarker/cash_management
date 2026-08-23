@@ -1212,6 +1212,7 @@ class CashOptimizer:
                         ccy=ccy, day=d, balance=round(bal_val, 2),
                         credit=round(bal_p, 2), debit=round(bal_n, 2),
                     ))
+                    floor = self.cfg.trade_report_floor_in(ccy)
                     for tenor in self.cfg.tenors:
                         if not self._has_trade_vars(ccy, d, tenor):
                             continue
@@ -1224,13 +1225,13 @@ class CashOptimizer:
                             for k in range(len(self.cfg.commission_tiers))
                         )
                         settle = d + self.cfg.tenors[tenor]
-                        if abs(bv) > 0.01:
+                        if abs(bv) > floor:
                             trades.append(Trade(
                                 ccy=ccy, day=d, tenor=tenor,
                                 direction=Direction.BUY, amount=round(bv, 2),
                                 settle_day=settle,
                             ))
-                        if abs(sv) > 0.01:
+                        if abs(sv) > floor:
                             trades.append(Trade(
                                 ccy=ccy, day=d, tenor=tenor,
                                 direction=Direction.SELL, amount=round(sv, 2),

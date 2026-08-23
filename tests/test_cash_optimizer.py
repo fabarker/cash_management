@@ -776,6 +776,44 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestTradeReportFloor(CostAssertions):
+    """Trades below a floor are treated as rounding and left out of the
+    reported plan.  The floor used to be a flat 0.01 for every currency,
+    which means very different things across them (F28)."""
+
+    def _cfg(self):
+        quotes = dict(Config().fx_quotes)
+        quotes["JPY"] = {t: FXTenorQuote(bid=0.0051, ask=0.0053)
+                         for t in Config().tenors}
+        return Config(currencies=["GBP", "USD", "EUR", "JPY"],
+                      fx_quotes=quotes)
+
+    def test_the_floor_is_worth_the_same_in_every_currency(self):
+        cfg = self._cfg()
+        for ccy in ("USD", "EUR", "JPY"):
+            with self.subTest(ccy=ccy):
+                in_ccy = cfg.trade_report_floor_in(ccy)
+                self.assertCostClose(in_ccy * cfg.fx_spot_mid(ccy),
+                                     cfg.trade_report_floor)
+
+    def test_yen_needs_a_much_larger_number_of_units(self):
+        # The case a flat 0.01 got wrong: 0.01 of a yen is far below
+        # quotable precision, so any tiny JPY trade was reported.
+        cfg = self._cfg()
+        self.assertGreater(cfg.trade_report_floor_in("JPY"), 1.0)
+
+    def test_the_base_currency_uses_the_floor_directly(self):
+        self.assertCostClose(Config().trade_report_floor_in("GBP"), 0.01)
+
+    def test_a_negative_floor_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Config(trade_report_floor=-1.0)
+
+    def test_ordinary_plans_are_unaffected(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000})
+        self.assertEqual(plan_of(r), [("USD", 0, "T2", "BUY", 100_000.0)])
+
+
 class TestManualAndOptimizerAgree(CostAssertions):
     """The manual evaluator converted foreign settlements at spot mid while
     the optimizer used the tenor's bid or ask, so the same trade produced
