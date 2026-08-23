@@ -49,7 +49,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
 from scripts.cash_optimizer_poc.models import (
@@ -347,8 +347,9 @@ class CashManager:
         Opening balance per currency. Defaults to zero for missing keys.
     constraints : ConstraintFlags, optional
         Override which optimizer constraints are active.  If omitted,
-        uses ``cfg.constraints``.  This lets you toggle constraints at
-        the CashManager level without modifying the shared Config.
+        uses ``cfg.constraints``.  The manager takes a copy of *cfg* when
+        overriding, so the object you pass in is never modified and two
+        managers built from one Config stay independent.
     """
 
     def __init__(
@@ -371,9 +372,15 @@ class CashManager:
                 universe.append(ccy)
         self._foreign_ccys = [c for c in universe if c != cfg.base_ccy]
 
-        # Override constraint flags if provided at the CashManager level
+        # Take a copy when overriding, rather than writing through to the
+        # caller's object.  Assigning self._cfg.constraints would reach back
+        # out and reconfigure the Config that was passed in — so building two
+        # managers from one Config to compare settings silently changed the
+        # first one, and which flags a manager ended up with depended on the
+        # order they were constructed in.  dataclasses.replace shares
+        # everything else, which is what the docstring above promised.
         if constraints is not None:
-            self._cfg.constraints = constraints
+            self._cfg = replace(cfg, constraints=constraints)
 
         # Cached results
         self._optimal_result: Optional[Result] = None

@@ -775,6 +775,63 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestConfigIsolation(CostAssertions):
+    """CashManager used to write its constraint override straight through to
+    the caller's Config, so two managers built from one Config were not
+    independent and the order they were constructed in decided which flags
+    each ended up with (F26)."""
+
+    def _flows(self):
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        return cf
+
+    def test_the_callers_config_is_not_modified(self):
+        cfg = Config()
+        before = cfg.constraints.summary()
+        CashManager(cfg, self._flows(), opening_balances={"GBP": 5_000_000},
+                    constraints=ConstraintFlags(no_loop=False))
+        self.assertEqual(cfg.constraints.summary(), before)
+        self.assertTrue(cfg.constraints.no_loop)
+
+    def test_two_managers_from_one_config_stay_independent(self):
+        cfg = Config()
+        baseline = CashManager(cfg, self._flows(),
+                               opening_balances={"GBP": 5_000_000})
+        variant = CashManager(cfg, self._flows(),
+                              opening_balances={"GBP": 5_000_000},
+                              constraints=ConstraintFlags(no_loop=False))
+        self.assertTrue(baseline.config.constraints.no_loop)
+        self.assertFalse(variant.config.constraints.no_loop)
+        self.assertIsNot(baseline.config, variant.config)
+
+    def test_construction_order_does_not_matter(self):
+        cfg = Config()
+        CashManager(cfg, self._flows(), opening_balances={"GBP": 5_000_000},
+                    constraints=ConstraintFlags(no_loop=False))
+        plain = CashManager(cfg, self._flows(),
+                            opening_balances={"GBP": 5_000_000})
+        self.assertTrue(plain.config.constraints.no_loop,
+                        "a manager with no override must get the original flags")
+
+    def test_the_copy_keeps_everything_else(self):
+        cfg = Config()
+        variant = CashManager(cfg, self._flows(),
+                              opening_balances={"GBP": 5_000_000},
+                              constraints=ConstraintFlags(no_loop=False))
+        self.assertEqual(variant.config.big_m, cfg.big_m)
+        self.assertEqual(variant.config.fx_exposure_start_day,
+                         cfg.fx_exposure_start_day)
+        self.assertEqual(variant.config.day_count("USD"), cfg.day_count("USD"))
+        self.assertEqual(variant.solve_optimal().status, "Optimal")
+
+    def test_without_an_override_the_config_is_shared_unchanged(self):
+        cfg = Config()
+        manager = CashManager(cfg, self._flows(),
+                              opening_balances={"GBP": 5_000_000})
+        self.assertIs(manager.config, cfg)
+
+
 class TestDayCount(CostAssertions):
     """Interest accrues on a day count that varies by currency.  One divisor
     for everything mis-states any currency that does not match it by
