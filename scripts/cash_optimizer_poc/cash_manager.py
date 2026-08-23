@@ -64,7 +64,6 @@ from scripts.cash_optimizer_poc.models import (
     Direction,
     FXTenorQuote,
     ManualTrade,
-    PhasingPlan,
     Trade,
 )
 from scripts.cash_optimizer_poc.optimizer import CashOptimizer
@@ -326,7 +325,7 @@ class CashManager:
     Interactive cash management workbench.
 
     Encapsulates a scenario (configuration, cash flows, opening balances,
-    phasing plans) and provides two ways to evaluate trades:
+    opening balances) and provides two ways to evaluate trades:
 
     - ``solve_optimal()`` — delegates to ``CashOptimizer`` for the
       mathematically optimal solution.
@@ -346,8 +345,6 @@ class CashManager:
         Exogenous cash flows over the horizon.
     opening_balances : dict, optional
         Opening balance per currency. Defaults to zero for missing keys.
-    phasing : list of PhasingPlan, optional
-        Phasing plans for ring-fenced currencies.
     constraints : ConstraintFlags, optional
         Override which optimizer constraints are active.  If omitted,
         uses ``cfg.constraints``.  This lets you toggle constraints at
@@ -359,13 +356,11 @@ class CashManager:
         cfg: Config,
         cashflows: CashFlowSet,
         opening_balances: Optional[Dict[str, float]] = None,
-        phasing: Optional[List[PhasingPlan]] = None,
         constraints: Optional[ConstraintFlags] = None,
     ) -> None:
         self._cfg = cfg
         self._cashflows = cashflows
         self._opening = opening_balances or {}
-        self._phasing = phasing or []
         # Match the optimizer's universe: declared currencies plus anything
         # that turns up in the opening balances or the cash flows, so a
         # discovered currency appears in the ladder and the manual evaluator
@@ -578,7 +573,6 @@ class CashManager:
             cfg=self._cfg,
             cashflows=self._cashflows,
             opening_balances=self._opening,
-            phasing=self._phasing,
         )
         result = optimizer.solve(solver_name=solver_name, time_limit=time_limit)
         self._optimal_result = result

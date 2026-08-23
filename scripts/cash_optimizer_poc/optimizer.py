@@ -20,7 +20,6 @@ from scripts.cash_optimizer_poc.models import (
     Config,
     Direction,
     FXTenorQuote,
-    PhasingPlan,
     Trade,
 )
 from scripts.cash_optimizer_poc.result import Result
@@ -90,12 +89,10 @@ class CashOptimizer:
         cfg: Config,
         cashflows: CashFlowSet,
         opening_balances: Optional[Dict[str, float]] = None,
-        phasing: Optional[List[PhasingPlan]] = None,
     ):
         self.cfg = cfg
         self.cf = cashflows
         self.opening = opening_balances or {}
-        self.phasing = {p.currency: p for p in (phasing or [])}
         self._check_opening_balances()
         self.currencies = self._resolve_currencies()
         self.foreign_ccys = [c for c in self.currencies if c != cfg.base_ccy]
@@ -526,37 +523,27 @@ class CashOptimizer:
     def _add_terminal_sweep(self, prob: pulp.LpProblem) -> None:
         last = self.cfg.horizon_days - 1
         for ccy in self.active_foreign_ccys:
-            if ccy in self.phasing:
-                ring = self.phasing[ccy].ring_fenced_at(last)
-                prob += (self._v("bal", ccy, last) <= ring, f"term_sweep_upper_{ccy}")
-                prob += (self._v("bal", ccy, last) >= 0, f"term_sweep_lower_{ccy}")
-            else:
-                prob += (self._v("bal", ccy, last) == 0, f"term_sweep_{ccy}")
-
-    def _add_phasing_constraints(self, prob: pulp.LpProblem) -> None:
-        for ccy, plan in self.phasing.items():
-            for d in range(self.cfg.horizon_days):
-                ring = plan.ring_fenced_at(d)
-                if ring > 0:
-                    prob += (self._v("bal", ccy, d) >= ring, f"phasing_floor_{ccy}_{d}")
+            prob += (self._v("bal", ccy, last) == 0, f"term_sweep_{ccy}")
 
     def _shortfall_profile(self, ccy: str) -> List[float]:
         """Funding shortfall per day if no trades were placed at all.
 
         Walks the do-nothing cash ladder and records, for each day, how far
-        the balance falls below what that day requires — zero for an
-        ordinary currency, the ring-fenced amount for a phasing account.
-        This is the honest measure of "how much of this currency do I
-        actually need to buy", and unlike a horizon-wide net it does not
-        let a receipt on Friday cancel a payment on Monday.
+        the balance falls below zero.  This is the honest measure of "how
+        much of this currency do I actually need to buy", and unlike a
+        horizon-wide net it does not let a receipt on Friday cancel a
+        payment on Monday.
+
+        If a required minimum balance is ever added, it belongs here as the
+        level the balance is measured against — a floor imposed only as a
+        constraint is infeasible, because to the anti-speculative cap a
+        balance you must hold is currency you have no cash-flow need for.
         """
-        plan = self.phasing.get(ccy)
         running = self.opening.get(ccy, 0.0)
         profile: List[float] = []
         for d in range(self.cfg.horizon_days):
             running += self.cf.get(ccy, d)
-            required = plan.ring_fenced_at(d) if plan is not None else 0.0
-            profile.append(max(0.0, required - running))
+            profile.append(max(0.0, -running))
         return profile
 
     def _add_anti_speculative_constraint(self, prob: pulp.LpProblem) -> None:
@@ -829,9 +816,9 @@ class CashOptimizer:
 
             # Cost of unwinding whatever is still held at the horizon, so a
             # position left open is not scored as though it were free.  The
-            # terminal sweep normally forces this to zero; a phasing account
-            # is the exception, and without this the model prefers to sit on
-            # currency rather than convert it.
+            # terminal sweep forces this to zero while it is on; with it off,
+            # this is what stops the model sitting on currency rather than
+            # converting it.
             if self.cfg.value_trade_rates:
                 last = self.cfg.horizon_days - 1
                 unwind_bps = self.cfg.commission_tiers[0].rate_bps / 1e4
@@ -928,8 +915,8 @@ class CashOptimizer:
         Takes the plan's closing balances, converts anything still held in a
         foreign currency back to base at the rate it would actually be dealt
         at — credit at the bid, debit at the ask — and adds it to the closing
-        base balance.  The terminal sweep normally leaves nothing to convert;
-        a phasing account is the exception.
+        base balance.  The terminal sweep leaves nothing to convert while it is
+        on; with it off, this is what values whatever is left.
 
         A negative result is the one honest definition of insufficient funds:
         after everything is turned back into base currency, the account still
@@ -993,10 +980,6 @@ class CashOptimizer:
             self._add_terminal_sweep(prob)
         else:
             log.info("  SKIPPED: terminal sweep constraints")
-        if flags.phasing:
-            self._add_phasing_constraints(prob)
-        else:
-            log.info("  SKIPPED: phasing constraints")
         if flags.anti_speculative:
             self._add_anti_speculative_constraint(prob)
         else:

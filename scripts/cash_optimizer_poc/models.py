@@ -53,15 +53,12 @@ class ConstraintFlags:
         Enforce monotonic drawdown of foreign balances on days with no
         future cashflow activity, preventing the optimizer from holding
         foreign currency purely for yield (carry-trade behaviour).
-    phasing : bool
-        Enforce ring-fenced balances for phasing accounts.
     """
 
     terminal_sweep: bool = True
     no_loop: bool = True
     anti_speculative: bool = True
     no_carry_trade: bool = True
-    phasing: bool = True
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -70,7 +67,6 @@ class ConstraintFlags:
             "no_loop": self.no_loop,
             "anti_speculative": self.anti_speculative,
             "no_carry_trade": self.no_carry_trade,
-            "phasing": self.phasing,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]
@@ -497,34 +493,6 @@ class Config:
                 f"Raise the final tier threshold to at least max_trade, or lower "
                 f"max_trade."
             )
-
-
-# ────────────────────────────────────────────
-# Phasing Plan
-# ────────────────────────────────────────────
-
-@dataclass
-class PhasingPlan:
-    """
-    Ring-fenced phasing balance that the optimizer must not sweep.
-
-    Attributes:
-        currency: The foreign currency being phased.
-        tranche_schedule: Dict mapping day index -> amount to deploy.
-        tolerance_pct: Allowed deviation above remaining balance.
-    """
-    currency: str
-    tranche_schedule: Dict[int, float] = field(default_factory=dict)
-    tolerance_pct: float = 0.02
-
-    def remaining_at(self, day: int) -> float:
-        """Return the total amount still to be deployed from `day` onward."""
-        return sum(amt for d, amt in self.tranche_schedule.items() if d >= day)
-
-    def ring_fenced_at(self, day: int) -> float:
-        """Max balance that should be protected from sweeping."""
-        rem = self.remaining_at(day)
-        return rem * (1.0 + self.tolerance_pct)
 
 
 # ────────────────────────────────────────────

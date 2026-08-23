@@ -24,13 +24,23 @@ from scripts.cash_optimizer_poc.models import (
     ConstraintFlags,
     Direction,
     FXTenorQuote,
-    PhasingPlan,
 )
 from scripts.cash_optimizer_poc.optimizer import (
     CashOptimizer,
     SolverFailure,
 )
 from scripts.cash_optimizer_poc.cash_manager import CashManager, ManualTrade
+
+
+# A desk without same-day settlement: nothing can settle on the day it is
+# dealt, so a payment due today cannot be funded however much cash is held.
+# This is the replacement for the phasing conflicts as an infeasibility case.
+NO_SAME_DAY = dict(
+    tenors={"T1": 1, "T2": 2},
+    spot_tenor="T2",
+    fx_quotes={c: {k: v for k, v in q.items() if k in ("T1", "T2")}
+               for c, q in Config().fx_quotes.items()},
+)
 
 REL = 1e-4  # cost comparisons: relative, to survive cross-solver precision
 
@@ -326,6 +336,16 @@ class TestCostAttribution(CostAssertions):
 
 class TestGuardRails(CostAssertions):
 
+    def test_phasing_is_gone(self):
+        # F12-F14: it crashed on a currency not already held, conflicted with
+        # the no-carry rule, and applied its tolerance in the wrong direction.
+        self.assertFalse(hasattr(ConstraintFlags(), "phasing"))
+        import scripts.cash_optimizer_poc.models as models
+        self.assertFalse(hasattr(models, "PhasingPlan"))
+        import inspect
+        from scripts.cash_optimizer_poc.optimizer import CashOptimizer as CO
+        self.assertNotIn("phasing", inspect.signature(CO.__init__).parameters)
+
     def test_reserve_subsystem_is_gone(self):
         # F7/F8: it could never be enabled and reported only zeros.
         self.assertFalse(hasattr(Config(), "min_reserve"))
@@ -391,7 +411,7 @@ class TestOptimizationInvariants(CostAssertions):
 
     def test_relaxing_a_constraint_cannot_raise_the_optimum(self):
         for flows, opening in self.SCENARIOS:
-            for flag in ["anti_speculative", "no_loop", "phasing"]:
+            for flag in ["anti_speculative", "no_loop", "no_carry_trade"]:
                 with self.subTest(flows=flows, flag=flag):
                     constrained = solve(flows, opening)
                     relaxed = solve(flows, opening,
@@ -542,14 +562,9 @@ class TestInsufficientFunds(CostAssertions):
         self.assertGreater(r.terminal_base_equivalent, 0.0)
 
     def test_constraint_conflict_is_not_called_a_funding_shortfall(self):
-        # A phasing account on a currency held but with no activity: the
-        # ring-fence floor and the no-carry sweep deadline contradict (F13).
-        cfg = Config()
-        cf = CashFlowSet(horizon_days=5)
-        cf.add("USD", 2, -100_000)
-        r = CashOptimizer(
-            cfg, cf, opening_balances={"GBP": 5_000_000, "EUR": 100_000},
-            phasing=[PhasingPlan("EUR", {3: 50_000})]).solve()
+        # Ample cash, but no settlement route exists on the day the payment
+        # falls due, so no plan satisfies the constraints.
+        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000}, **NO_SAME_DAY)
         self.assertEqual(r.status, "Infeasible")
         self.assertFalse(r.insufficient_funds,
                          "ample cash: this is a constraint conflict")
@@ -636,12 +651,7 @@ class TestNonOptimalStatus(CostAssertions):
 
     def test_infeasible_still_returns_a_result(self):
         # Infeasibility is an informative outcome, not a solver failure.
-        cfg = Config()
-        cf = CashFlowSet(horizon_days=5)
-        cf.add("USD", 2, -100_000)
-        r = CashOptimizer(
-            cfg, cf, opening_balances={"GBP": 5_000_000, "EUR": 100_000},
-            phasing=[PhasingPlan("EUR", {3: 50_000})]).solve()
+        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000}, **NO_SAME_DAY)
         self.assertEqual(r.status, "Infeasible")
         self.assertEqual(r.trades, [])
 
@@ -768,16 +778,6 @@ class TestCurrencyDiscovery(CostAssertions):
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""
-
-    def test_f12_phasing_on_an_unheld_currency_still_raises(self):
-        cfg = Config()
-        cf = CashFlowSet(horizon_days=5)
-        cf.add("USD", 2, -100_000)
-        plan = PhasingPlan(currency="EUR", tranche_schedule={3: 50_000})
-        opt = CashOptimizer(cfg, cf, opening_balances={"GBP": 5_000_000},
-                            phasing=[plan])
-        with self.assertRaises(TypeError):
-            opt.solve()
 
 
 if __name__ == "__main__":
