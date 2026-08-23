@@ -776,6 +776,51 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestMinimumTradeSize(CostAssertions):
+    """Nothing stopped the optimizer emitting a ticket nobody could deal.
+    The activation binaries existed for exactly this and carried no floor
+    and no cost (F15)."""
+
+    def test_off_by_default(self):
+        self.assertEqual(Config().min_trade, 0.0)
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000})
+        self.assertEqual(plan_of(r), [("USD", 0, "T2", "BUY", 100_000.0)])
+
+    def test_a_ticket_above_the_minimum_is_unaffected(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000},
+                  min_trade=50_000.0)
+        self.assertEqual(r.status, "Optimal")
+        self.assertEqual(plan_of(r), [("USD", 0, "T2", "BUY", 100_000.0)])
+
+    def test_every_reported_trade_clears_the_minimum(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000},
+                  min_trade=50_000.0)
+        cfg = Config(min_trade=50_000.0)
+        for t in r.trades:
+            with self.subTest(trade=t):
+                self.assertGreaterEqual(t.amount + 1e-6,
+                                        cfg.min_trade_in(t.ccy))
+
+    def test_a_need_below_the_minimum_has_no_legal_ticket(self):
+        # A true answer about a real dealing constraint, not a defect: the
+        # amount is under the minimum and the anti-speculative cap will not
+        # permit buying a whole ticket's worth.
+        r = solve([("USD", 2, -1_000)], {"GBP": 5_000_000}, min_trade=50_000.0)
+        self.assertEqual(r.status, "Infeasible")
+        self.assertFalse(r.insufficient_funds, "cash is not the problem")
+
+    def test_the_minimum_is_worth_the_same_in_every_currency(self):
+        cfg = Config(min_trade=10_000.0)
+        for ccy in ("USD", "EUR"):
+            with self.subTest(ccy=ccy):
+                self.assertCostClose(
+                    cfg.min_trade_in(ccy) * cfg.fx_spot_mid(ccy), 10_000.0)
+
+    def test_a_negative_minimum_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Config(min_trade=-1.0)
+
+
 class TestTradeReportFloor(CostAssertions):
     """Trades below a floor are treated as rounding and left out of the
     reported plan.  The floor used to be a flat 0.01 for every currency,

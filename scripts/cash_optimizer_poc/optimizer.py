@@ -466,6 +466,7 @@ class CashOptimizer:
             # magnitude above any real trade in the same rows as the T+0
             # sign variable, which is enough to stall the search.
             M = min(self.cfg.big_m, self.balance_bounds[ccy] * 2.0)
+            floor = self.cfg.min_trade_in(ccy)
             for d in range(self.cfg.horizon_days):
                 for tenor in self.cfg.tenors:
                     if not self._has_trade_vars(ccy, d, tenor):
@@ -476,6 +477,16 @@ class CashOptimizer:
                     act_s = self._v("act_sell", ccy, d, tenor)
                     prob += (buy <= M * act_b, f"actLink_buy_{ccy}_{d}_{tenor}")
                     prob += (sell <= M * act_s, f"actLink_sell_{ccy}_{d}_{tenor}")
+
+                    # Deal at least a whole ticket, or not at all.  The
+                    # activation flags have always existed for this and
+                    # never done it, which is why plans could contain a
+                    # one-cent trade nobody could execute.
+                    if floor > 0:
+                        prob += (buy >= floor * act_b,
+                                 f"minTrade_buy_{ccy}_{d}_{tenor}")
+                        prob += (sell >= floor * act_s,
+                                 f"minTrade_sell_{ccy}_{d}_{tenor}")
 
     def _add_commission_tier_linking(self, prob: pulp.LpProblem) -> None:
         tiers = self.cfg.commission_tiers

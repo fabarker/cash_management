@@ -289,6 +289,34 @@ class Config:
     # no cash still produces a well-formed model.
     min_balance_ceiling: float = 1_000.0
 
+    # Smallest dealable ticket, in BASE currency and converted per currency.
+    #
+    # Zero by default, which leaves behaviour unchanged.  Set it and the
+    # model must either trade at least this much or not trade at all, which
+    # is what the activation binaries were built for — they have never
+    # carried a cost or imposed a floor, so nothing stopped the optimizer
+    # emitting a ticket nobody could deal.
+    #
+    # Be aware this can make a scenario infeasible: if the funding required
+    # is below the minimum and the anti-speculative cap will not permit
+    # buying more, there is no legal ticket. That is a true answer about a
+    # real dealing constraint, not a defect.
+    min_trade: float = 0.0
+
+    def min_trade_in(self, ccy: str) -> float:
+        """``min_trade`` expressed in *ccy* units."""
+        if not self.min_trade:
+            return 0.0
+        if ccy == self.base_ccy:
+            return self.min_trade
+        try:
+            mid = self.fx_spot_mid(ccy)
+            if mid > 0:
+                return self.min_trade / mid
+        except (KeyError, AttributeError):
+            pass
+        return self.min_trade
+
     # A trade below this is treated as rounding and left out of the
     # reported plan.  Expressed in BASE currency and converted per currency,
     # because a flat figure means wildly different things across them: 0.01
@@ -518,6 +546,9 @@ class Config:
                 f"default_day_count must be positive, "
                 f"got {self.default_day_count}"
             )
+
+        if self.min_trade < 0:
+            raise ValueError(f"min_trade must be >= 0, got {self.min_trade}")
 
         if self.trade_report_floor < 0:
             raise ValueError(
