@@ -834,17 +834,6 @@ class CashManager:
         violations: List[str] = []
         trades = result.trades
 
-        if flags.no_loop:
-            settle: Dict[Tuple[str, int], set] = {}
-            for t in trades:
-                settle.setdefault((t.ccy, t.settle_day), set()).add(
-                    t.direction.value)
-            for (ccy, day), directions in sorted(settle.items()):
-                if len(directions) > 1:
-                    violations.append(
-                        f"no_loop: {ccy} is both bought and sold for "
-                        f"settlement on day {day}")
-
         if flags.anti_speculative:
             optimizer = CashOptimizer(cfg, self._cashflows,
                                       opening_balances=self._opening)

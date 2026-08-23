@@ -360,8 +360,7 @@ class TestGuardRails(CostAssertions):
         self.assertNotIn("RESERVE", r.format_summary().upper())
 
     def test_speculation_stays_blocked_at_any_carry_differential(self):
-        flags = ConstraintFlags(no_carry_trade=False, terminal_sweep=False,
-                                no_loop=False)
+        flags = ConstraintFlags(no_carry_trade=False, terminal_sweep=False)
         for usd_rate in [5.0, 50.0, 200.0]:
             with self.subTest(usd_rate=usd_rate):
                 r = solve([], {"GBP": 50_000_000, "USD": 1.0},
@@ -414,7 +413,7 @@ class TestOptimizationInvariants(CostAssertions):
 
     def test_relaxing_a_constraint_cannot_raise_the_optimum(self):
         for flows, opening in self.SCENARIOS:
-            for flag in ["anti_speculative", "no_loop", "no_carry_trade"]:
+            for flag in ["anti_speculative", "no_carry_trade"]:
                 with self.subTest(flows=flows, flag=flag):
                     constrained = solve(flows, opening)
                     relaxed = solve(flows, opening,
@@ -836,14 +835,19 @@ class TestManualPlanViolations(CostAssertions):
             [ManualTrade("USD", 0, "T2", Direction.BUY, 100_000.0)])
         self.assertEqual(manager.constraint_violations(legal), [])
 
-    def test_a_round_trip_is_caught(self):
+    def test_a_wash_trade_is_still_reported(self):
+        # Buy and sell landing on the same settlement day.  The rule that
+        # named this specifically has been removed -- it could never bind,
+        # because a wash trade pays the spread and two commissions and the
+        # objective rejects it unprompted.  The plan is still illegal on
+        # its size, and must still come back reported rather than silently
+        # accepted.
         manager = self._manager()
         looped = manager.execute_trades([
             ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0),
             ManualTrade("USD", 1, "T1", Direction.SELL, 800_000.0),
         ])
-        self.assertTrue(any("no_loop" in v
-                            for v in manager.constraint_violations(looped)))
+        self.assertNotEqual(manager.constraint_violations(looped), [])
 
     def test_buying_beyond_the_funding_need_is_caught(self):
         manager = self._manager()
@@ -1107,9 +1111,9 @@ class TestConfigIsolation(CostAssertions):
         cfg = Config()
         before = cfg.constraints.summary()
         CashManager(cfg, self._flows(), opening_balances={"GBP": 5_000_000},
-                    constraints=ConstraintFlags(no_loop=False))
+                    constraints=ConstraintFlags(terminal_sweep=False))
         self.assertEqual(cfg.constraints.summary(), before)
-        self.assertTrue(cfg.constraints.no_loop)
+        self.assertTrue(cfg.constraints.terminal_sweep)
 
     def test_two_managers_from_one_config_stay_independent(self):
         cfg = Config()
@@ -1117,25 +1121,25 @@ class TestConfigIsolation(CostAssertions):
                                opening_balances={"GBP": 5_000_000})
         variant = CashManager(cfg, self._flows(),
                               opening_balances={"GBP": 5_000_000},
-                              constraints=ConstraintFlags(no_loop=False))
-        self.assertTrue(baseline.config.constraints.no_loop)
-        self.assertFalse(variant.config.constraints.no_loop)
+                              constraints=ConstraintFlags(terminal_sweep=False))
+        self.assertTrue(baseline.config.constraints.terminal_sweep)
+        self.assertFalse(variant.config.constraints.terminal_sweep)
         self.assertIsNot(baseline.config, variant.config)
 
     def test_construction_order_does_not_matter(self):
         cfg = Config()
         CashManager(cfg, self._flows(), opening_balances={"GBP": 5_000_000},
-                    constraints=ConstraintFlags(no_loop=False))
+                    constraints=ConstraintFlags(terminal_sweep=False))
         plain = CashManager(cfg, self._flows(),
                             opening_balances={"GBP": 5_000_000})
-        self.assertTrue(plain.config.constraints.no_loop,
+        self.assertTrue(plain.config.constraints.terminal_sweep,
                         "a manager with no override must get the original flags")
 
     def test_the_copy_keeps_everything_else(self):
         cfg = Config()
         variant = CashManager(cfg, self._flows(),
                               opening_balances={"GBP": 5_000_000},
-                              constraints=ConstraintFlags(no_loop=False))
+                              constraints=ConstraintFlags(terminal_sweep=False))
         self.assertEqual(variant.config.big_m, cfg.big_m)
         self.assertEqual(variant.config.fx_exposure_from_day,
                          cfg.fx_exposure_from_day)

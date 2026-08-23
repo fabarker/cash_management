@@ -515,33 +515,6 @@ class CashOptimizer:
                             prob += (seg_s_next <= cap_next * fill_s, f"tier_order_sell_{ccy}_{d}_{tenor}_{k}")
                             prob += (seg_s_k >= cap_k * fill_s, f"tier_full_sell_{ccy}_{d}_{tenor}_{k}")
 
-    def _add_no_loop_constraints(self, prob: pulp.LpProblem) -> None:
-        for ccy in self.active_foreign_ccys:
-            settle_groups: Dict[int, List[Tuple[int, str]]] = {}
-            for d in range(self.cfg.horizon_days):
-                for tenor, lag in self.cfg.tenors.items():
-                    sd = d + lag
-                    if sd >= self.cfg.horizon_days:
-                        continue
-                    settle_groups.setdefault(sd, []).append((d, tenor))
-            for sd, pairs in settle_groups.items():
-                buy_acts = []
-                sell_acts = []
-                for (td, tn) in pairs:
-                    ab = self._v("act_buy", ccy, td, tn)
-                    as_ = self._v("act_sell", ccy, td, tn)
-                    if ab is not None:
-                        buy_acts.append(ab)
-                    if as_ is not None:
-                        sell_acts.append(as_)
-                if not buy_acts and not sell_acts:
-                    continue
-                z = pulp.LpVariable(f"noloop_z_{ccy}_sd{sd}", cat="Binary")
-                n_buy = len(buy_acts)
-                n_sell = len(sell_acts)
-                prob += (pulp.lpSum(buy_acts) <= n_buy * z, f"noloop_buy_{ccy}_sd{sd}")
-                prob += (pulp.lpSum(sell_acts) <= n_sell * (1 - z), f"noloop_sell_{ccy}_sd{sd}")
-
     def _add_terminal_sweep(self, prob: pulp.LpProblem) -> None:
         last = self.cfg.horizon_days - 1
         for ccy in self.active_foreign_ccys:
@@ -1082,10 +1055,6 @@ class CashOptimizer:
         self._add_activation_linking(prob)
         self._add_commission_tier_linking(prob)
 
-        if flags.no_loop:
-            self._add_no_loop_constraints(prob)
-        else:
-            log.info("  SKIPPED: no-loop constraints")
         if flags.terminal_sweep:
             self._add_terminal_sweep(prob)
         else:

@@ -41,9 +41,6 @@ class ConstraintFlags:
     ----------
     terminal_sweep : bool
         Force all foreign balances to zero at the end of the horizon.
-    no_loop : bool
-        Forbid simultaneous buy and sell of the same currency on the
-        same settlement day.
     anti_speculative : bool
         Cap cumulative buys per currency, day by day, to the deepest
         funding shortfall the cash ladder actually reaches within the
@@ -63,7 +60,6 @@ class ConstraintFlags:
     """
 
     terminal_sweep: bool = True
-    no_loop: bool = True
     anti_speculative: bool = True
     no_carry_trade: bool = True
     holding_ceiling: bool = False
@@ -72,7 +68,6 @@ class ConstraintFlags:
         """Return a compact one-line summary of active/inactive flags."""
         flags = {
             "terminal_sweep": self.terminal_sweep,
-            "no_loop": self.no_loop,
             "anti_speculative": self.anti_speculative,
             "no_carry_trade": self.no_carry_trade,
             "holding_ceiling": self.holding_ceiling,
