@@ -561,12 +561,92 @@ class CashOptimizer:
         constraint is infeasible, because to the anti-speculative cap a
         balance you must hold is currency you have no cash-flow need for.
         """
+        return [max(0.0, -b) for b in self._do_nothing_ladder(ccy)]
+
+    def _do_nothing_ladder(self, ccy: str) -> List[float]:
+        """Closing balance per day if no trades were placed at all.
+
+        Opening balance plus that currency's own cash flows, accumulated.
+        Both the funding shortfall and the holding ceiling are read off
+        this single walk, so the two can never disagree about what the
+        account would look like left alone.  That disagreement is exactly
+        what made a rule keyed on the cash flow file blind to an opening
+        overdraft.
+        """
         running = self.opening.get(ccy, 0.0)
-        profile: List[float] = []
+        ladder: List[float] = []
         for d in range(self.cfg.horizon_days):
             running += self.cf.get(ccy, d)
-            profile.append(max(0.0, -running))
-        return profile
+            ladder.append(running)
+        return ladder
+
+    def _holding_ceiling(self, ccy: str) -> List[float]:
+        """Most of ``ccy`` the plan may still be holding at end of day.
+
+        The ceiling on day ``d`` is the deepest funding hole a trade dealt
+        on day ``d`` could still settle against — that is, the worst point
+        of the do-nothing ladder anywhere in ``d .. d + max_settlement_lag``.
+
+        The reach window is what makes this an anti-speculation rule rather
+        than a size limit.  If a payment can always be funded by dealing at
+        the longest tenor, there is no honest reason to own the currency
+        earlier than that; anything held sooner is a position, not funding,
+        so the ceiling is simply zero until the obligation comes within
+        dealing range.
+
+        One carve-out.  A known future receipt can be sold forward to the
+        day it lands, so it is never actually held and the ceiling costs
+        nothing.  Money already on the books before any trade could have
+        been dealt against it is different — there was no earlier day to
+        sell it on.  For days before the shortest settlement lag the
+        ceiling therefore admits the do-nothing balance itself.  Without
+        that, the first opening balance in any currency is infeasible.
+        """
+        max_lag = max(self.cfg.tenors.values())
+        min_lag = min(self.cfg.tenors.values())
+        horizon = self.cfg.horizon_days
+
+        ladder = self._do_nothing_ladder(ccy)
+        hole = [max(0.0, -b) for b in ladder]
+
+        ceiling: List[float] = []
+        for d in range(horizon):
+            cap = max(hole[d:min(d + max_lag + 1, horizon)])
+            if d < min_lag:
+                cap = max(cap, ladder[d])
+            ceiling.append(cap)
+        return ceiling
+
+    def _add_holding_ceiling(self, prob: pulp.LpProblem) -> None:
+        """Cap the foreign holding at what the near-term ladder needs.
+
+        Written on ``bal_pos`` rather than on ``bal``: an overdraft is not
+        a holding, and imposing this on the signed balance would say an
+        account may never go overdrawn — a different rule, and a wrong one,
+        since the model prices overdrafts deliberately.
+        """
+        for ccy in self.active_foreign_ccys:
+            ceiling = self._holding_ceiling(ccy)
+            for d in range(self.cfg.horizon_days):
+                cap = ceiling[d]
+                if cap > 0.0:
+                    slack = max(cap * self.cfg.holding_tolerance,
+                                self.cfg.holding_min_slack)
+                else:
+                    # No reachable need, so no holding is justifiable.
+                    # Keep this an exact zero for the same reason the
+                    # anti-speculative cap does: an "almost nothing" bound
+                    # leaves the day's binaries live and presolve can no
+                    # longer strip them.
+                    slack = 0.0
+                prob += (
+                    self._v("bal_pos", ccy, d) <= cap + slack,
+                    f"hold_ceil_{ccy}_{d}",
+                )
+            log.info(
+                "Holding ceiling for %s: %s",
+                ccy, [round(c, 2) for c in ceiling],
+            )
 
     def _add_anti_speculative_constraint(self, prob: pulp.LpProblem) -> None:
         """Cap purchases at the funding actually needed, day by day.
@@ -1018,6 +1098,10 @@ class CashOptimizer:
             self._add_no_carry_trade_constraint(prob)
         else:
             log.info("  SKIPPED: no-carry-trade constraints")
+        if flags.holding_ceiling:
+            self._add_holding_ceiling(prob)
+        else:
+            log.info("  SKIPPED: holding ceiling")
         prob += self._build_objective(), "TotalCost"
         self._prob = prob
 

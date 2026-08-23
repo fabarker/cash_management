@@ -53,12 +53,20 @@ class ConstraintFlags:
         Enforce monotonic drawdown of foreign balances on days with no
         future cashflow activity, preventing the optimizer from holding
         foreign currency purely for yield (carry-trade behaviour).
+    holding_ceiling : bool
+        Cap the foreign balance held at the end of each day at the
+        deepest funding shortfall reachable from a trade dealt that day.
+        Expressed on the holding rather than on the purchases, so it
+        constrains currency that arrived as a receipt as well as
+        currency that was bought.  Defaults to ``False`` while the
+        constraints it is intended to replace are still active.
     """
 
     terminal_sweep: bool = True
     no_loop: bool = True
     anti_speculative: bool = True
     no_carry_trade: bool = True
+    holding_ceiling: bool = False
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -67,6 +75,7 @@ class ConstraintFlags:
             "no_loop": self.no_loop,
             "anti_speculative": self.anti_speculative,
             "no_carry_trade": self.no_carry_trade,
+            "holding_ceiling": self.holding_ceiling,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]
@@ -354,6 +363,14 @@ class Config:
     anti_speculative_tolerance: float = 1e-6
     anti_speculative_min_slack: float = 1.0
 
+    # Slack on the holding ceiling.  Deliberately zero: the tolerance the
+    # anti-speculative cap needs exists because the terminal sweep drives
+    # cumulative purchases exactly onto that cap, leaving a pin the solver
+    # cannot certify.  A ceiling on a balance has no such pin, so start
+    # exact and only loosen this if degeneracy actually shows up.
+    holding_tolerance: float = 0.0
+    holding_min_slack: float = 0.0
+
     # ── Trade-rate valuation (finding F4) ─────────────────────
     #
     # Without this, the objective counts every cost of a trade and none of
@@ -556,6 +573,14 @@ class Config:
                 f"got {self.trade_report_floor}"
             )
 
+        if self.holding_tolerance < 0:
+            raise ValueError(
+                f"holding_tolerance must be >= 0, got {self.holding_tolerance}"
+            )
+        if self.holding_min_slack < 0:
+            raise ValueError(
+                f"holding_min_slack must be >= 0, got {self.holding_min_slack}"
+            )
         if self.anti_speculative_tolerance < 0:
             raise ValueError(
                 f"anti_speculative_tolerance must be >= 0, "
