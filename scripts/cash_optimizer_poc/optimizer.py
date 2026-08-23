@@ -515,6 +515,50 @@ class CashOptimizer:
                             prob += (seg_s_next <= cap_next * fill_s, f"tier_order_sell_{ccy}_{d}_{tenor}_{k}")
                             prob += (seg_s_k >= cap_k * fill_s, f"tier_full_sell_{ccy}_{d}_{tenor}_{k}")
 
+    def _add_no_loop_constraints(self, prob: pulp.LpProblem) -> None:
+        """Forbid buying and selling one currency for the same settle day.
+
+        Not an anti-carry rule.  A wash trade pays the spread twice and two
+        commissions, so the objective rejects it wherever it is merely
+        available -- at any spread, and even with commission set to zero.
+
+        It binds where a wash trade is not chosen but *forced*.  Give the
+        model a 1,000 need and a 50,000 minimum ticket and it will buy
+        64,291 and sell 63,291 for the same value date: two legal tickets
+        netting to an amount no dealer would accept as one.  That is a
+        fiction which games the minimum, and the holding ceiling cannot see
+        it, because the position nets to zero on every single day.
+
+        The cumulative purchase cap this model used to carry hid that,
+        since it bounded the gross buy rather than the net position.  The
+        ceiling deliberately does not, so this rule now does real work.
+        """
+        for ccy in self.active_foreign_ccys:
+            settle_groups: Dict[int, List[Tuple[int, str]]] = {}
+            for d in range(self.cfg.horizon_days):
+                for tenor, lag in self.cfg.tenors.items():
+                    sd = d + lag
+                    if sd >= self.cfg.horizon_days:
+                        continue
+                    settle_groups.setdefault(sd, []).append((d, tenor))
+            for sd, pairs in settle_groups.items():
+                buy_acts = []
+                sell_acts = []
+                for (td, tn) in pairs:
+                    ab = self._v("act_buy", ccy, td, tn)
+                    as_ = self._v("act_sell", ccy, td, tn)
+                    if ab is not None:
+                        buy_acts.append(ab)
+                    if as_ is not None:
+                        sell_acts.append(as_)
+                if not buy_acts and not sell_acts:
+                    continue
+                z = pulp.LpVariable(f"noloop_z_{ccy}_sd{sd}", cat="Binary")
+                n_buy = len(buy_acts)
+                n_sell = len(sell_acts)
+                prob += (pulp.lpSum(buy_acts) <= n_buy * z, f"noloop_buy_{ccy}_sd{sd}")
+                prob += (pulp.lpSum(sell_acts) <= n_sell * (1 - z), f"noloop_sell_{ccy}_sd{sd}")
+
     def _add_terminal_sweep(self, prob: pulp.LpProblem) -> None:
         last = self.cfg.horizon_days - 1
         for ccy in self.active_foreign_ccys:
@@ -567,40 +611,102 @@ class CashOptimizer:
         so the ceiling is simply zero until the obligation comes within
         dealing range.
 
+        The hole alone is not the whole ceiling.  It is measured on the
+        do-nothing ladder, which already contains the receipts — so a
+        receipt that covers a later payment in the same currency digs no
+        hole at all, and a ceiling built from the hole alone would forbid
+        holding money the account was always going to spend.  The model's
+        only way out is to sell the receipt and buy it back, paying two
+        spreads and two commissions for nothing.  That is the mirror image
+        of the netting defect ``_add_anti_speculative_constraint`` documents.
+
+        So the ceiling has two parts, and they add:
+
+        * the hole reachable from a trade dealt today — currency that must
+          still be **acquired**, which is where the reach window belongs;
+        * currency already **earmarked** — the part of the do-nothing
+          holding that a remaining outflow will consume.
+
+        The earmark is capped by the do-nothing holding, which no amount of
+        trading can inflate, so it cannot be used to manufacture a
+        position: on a day the account would hold nothing, it contributes
+        nothing.  It carries no reach window, deliberately.  Money already
+        in hand against a known obligation is not a position, and forcing
+        it to be sold and rebought is pure waste.
+
         One carve-out.  A known future receipt can be sold forward to the
         day it lands, so it is never actually held and the ceiling costs
         nothing.  Money already on the books before any trade could have
         been dealt against it is different — there was no earlier day to
-        sell it on.  For days before the shortest settlement lag the
-        ceiling therefore admits the do-nothing balance itself.  Without
-        that, the first opening balance in any currency is infeasible.
+        sell it on.  For the first ``max_settlement_lag`` days the ceiling
+        therefore admits the do-nothing balance itself.
+
+        That window is the settlement window, not the shortest tenor,
+        deliberately.  Narrowing it to the shortest lag would force such a
+        balance out at T+0 on day nought, which is not an anti-speculation
+        gain — the position is contracted away the moment the trade is
+        dealt — but does remove the choice of tenor, and with it any chance
+        of taking the better forward rate.  It is also exactly the grace
+        the sweep deadline this replaces allowed: for a currency with no
+        cashflows at all its deadline was day ``max_settlement_lag``.
+
+        The carve-out is capped by the do-nothing balance, which no amount
+        of trading can inflate, so it cannot be used to build a position.
         """
         max_lag = max(self.cfg.tenors.values())
-        min_lag = min(self.cfg.tenors.values())
         horizon = self.cfg.horizon_days
 
         ladder = self._do_nothing_ladder(ccy)
         hole = [max(0.0, -b) for b in ladder]
 
+        # Gross outflows still ahead of each day: what a holding could
+        # legitimately still be spent on.
+        still_to_pay = [0.0] * horizon
+        running = 0.0
+        for d in range(horizon - 1, -1, -1):
+            flow = self.cf.get(ccy, d)
+            if flow < 0.0:
+                running += -flow
+            still_to_pay[d] = running
+
         ceiling: List[float] = []
         for d in range(horizon):
-            cap = max(hole[d:min(d + max_lag + 1, horizon)])
-            if d < min_lag:
+            to_acquire = max(hole[d:min(d + max_lag + 1, horizon)])
+            earmarked = min(still_to_pay[d], max(0.0, ladder[d]))
+            cap = to_acquire + earmarked
+            if d < max_lag:
                 cap = max(cap, ladder[d])
             ceiling.append(cap)
         return ceiling
 
     def _add_holding_ceiling(self, prob: pulp.LpProblem) -> None:
-        """Cap the foreign holding at what the near-term ladder needs.
+        """Hold the balance inside the corridor the cash flows define.
 
-        Written on ``bal_pos`` rather than on ``bal``: an overdraft is not
-        a holding, and imposing this on the signed balance would say an
+        Two bounds, and both are needed.
+
+        The **ceiling** goes on ``bal_pos``, not on ``bal``: an overdraft is
+        not a holding, and imposing this on the signed balance would say an
         account may never go overdrawn — a different rule, and a wrong one,
         since the model prices overdrafts deliberately.
+
+        But bounding only the positive part leaves the short side wide
+        open, and selling a currency you do not own is the same
+        speculation in reverse: short a low-yielding currency and the
+        differential accrues to you.  So the **floor** goes on ``bal_neg``,
+        at the deepest overdraft the cash flows themselves dig.  Doing
+        nothing at all lands exactly on that floor, and trading can only
+        lift you off it, so this forbids nothing the account can genuinely
+        experience — only overdrafts the model would have to manufacture
+        by selling currency it never had.
         """
         for ccy in self.active_foreign_ccys:
             ceiling = self._holding_ceiling(ccy)
+            floor = [max(0.0, -b) for b in self._do_nothing_ladder(ccy)]
             for d in range(self.cfg.horizon_days):
+                prob += (
+                    self._v("bal_neg", ccy, d) <= floor[d],
+                    f"hold_floor_{ccy}_{d}",
+                )
                 cap = ceiling[d]
                 if cap > 0.0:
                     slack = max(cap * self.cfg.holding_tolerance,
@@ -617,163 +723,10 @@ class CashOptimizer:
                     f"hold_ceil_{ccy}_{d}",
                 )
             log.info(
-                "Holding ceiling for %s: %s",
+                "Holding corridor for %s: ceiling=%s floor=%s",
                 ccy, [round(c, 2) for c in ceiling],
+                [round(-f, 2) for f in floor],
             )
-
-    def _add_anti_speculative_constraint(self, prob: pulp.LpProblem) -> None:
-        """Cap purchases at the funding actually needed, day by day.
-
-        The rule is applied cumulatively rather than as a single
-        horizon-wide total.  Purchases placed on or before day ``d`` may
-        cover any shortfall arising up to ``d + max_settlement_lag`` — far
-        enough ahead to pre-fund within the settlement window, but not far
-        enough to accumulate a position early and sit on it.
-
-        The previous formulation netted every inflow against every outflow
-        regardless of timing, so a payment on Monday offset by a receipt on
-        Wednesday produced a cap of zero and the genuine two-day shortfall
-        could not be funded at all — the optimizer's only option was to run
-        an overdraft it had the cash to avoid.  Measuring the deepest
-        shortfall actually experienced fixes that while still refusing to
-        fund a position the cash flows do not call for.
-
-        A small slack keeps the row from being exactly binding; see
-        ``Config.anti_speculative_tolerance`` for why that matters.
-        """
-        max_lag = max(self.cfg.tenors.values())
-        horizon = self.cfg.horizon_days
-
-        for ccy in self.active_foreign_ccys:
-            shortfall = self._shortfall_profile(ccy)
-
-            # Deepest shortfall seen on or before each day.
-            deepest: List[float] = []
-            worst = 0.0
-            for d in range(horizon):
-                worst = max(worst, shortfall[d])
-                deepest.append(worst)
-
-            # Cap on purchases placed on or before each day: a trade
-            # placed on day d settles by day d + max_lag, so it may fund
-            # any shortfall arising by then.
-            caps = [deepest[min(d + max_lag, horizon - 1)]
-                    for d in range(horizon)]
-
-            # Most of those caps are redundant.  Cumulative purchases only
-            # ever rise, and so does the cap, so the bound on day d is
-            # already implied by the bound on day d+1 whenever the two are
-            # equal — only the last day of each run of equal caps binds
-            # anything.  Keeping the rest costs a near-duplicate,
-            # near-binding row for every day of the horizon, and that much
-            # dual degeneracy is enough on its own to push a six-currency
-            # model past the solver's time limit.
-            binding_days = [
-                d for d in range(horizon)
-                if d == horizon - 1 or caps[d] < caps[d + 1]
-            ]
-
-            cum_buys: List = []
-            next_binding = 0
-            n_added = 0
-            for d in range(horizon):
-                for tenor in self.cfg.tenors:
-                    buy = self._total_buy(ccy, d, tenor)
-                    if buy is not None:
-                        cum_buys.append(buy)
-                if d != binding_days[next_binding]:
-                    continue
-                next_binding += 1
-                if not cum_buys:
-                    continue
-
-                cap = caps[d]
-                if cap > 0.0:
-                    # Slack matters only where the cap is a positive number
-                    # the terminal sweep also drives purchases up to; that
-                    # is the pin the solver cannot certify.
-                    slack = max(
-                        cap * self.cfg.anti_speculative_tolerance,
-                        self.cfg.anti_speculative_min_slack,
-                    )
-                else:
-                    # No reachable shortfall, so no purchase is justifiable.
-                    # Keep this an exact zero: a cap of "almost nothing"
-                    # leaves the trade and tier binaries live for a day that
-                    # cannot trade, which presolve can no longer strip out.
-                    slack = 0.0
-                prob += (
-                    pulp.lpSum(cum_buys) <= cap + slack,
-                    f"anti_spec_{ccy}_{d}",
-                )
-                n_added += 1
-
-            if n_added:
-                log.debug(
-                    "Anti-speculative cap for %s: %d cumulative bound(s), "
-                    "shortfall profile=%s, final cap=%.2f",
-                    ccy, n_added, [round(s, 2) for s in shortfall],
-                    deepest[-1],
-                )
-
-    def _add_no_carry_trade_constraint(self, prob: pulp.LpProblem) -> None:
-        """Prevent carry-trade behaviour by forcing prompt conversion.
-
-        One rule per foreign currency: the balance must reach zero by
-        ``last_activity_day + max_settlement_lag + 1``.  If the currency
-        has no cashflows at all this equals ``max_settlement_lag``, so an
-        opening balance must be converted within the spot settlement
-        window.
-
-        Two further rules used to live here and have been removed.
-
-        A **monotonic drawdown** rule held the balance at or below the
-        previous day's on any day with no cashflow still ahead of it.  Its
-        window is only the days between the last cashflow and the sweep
-        deadline above, and across every scenario tested it never changed
-        an answer: the objective already has no reason to build a position
-        it must liquidate a day or two later.
-
-        A **no speculative buys** rule zeroed every buy variable on days
-        with no future outflow.  It was not merely inert but strictly
-        dominated by the anti-speculative cap, which is a cumulative budget
-        rather than a daily allowance -- once the genuine need is bought
-        the budget is spent, and nothing further can be bought on any later
-        day regardless.  Worse, it read the cashflow file alone, so it
-        could not see an opening overdraft: a currency that started
-        overdrawn with nothing else scheduled was denied any purchase while
-        the sweep deadline above still demanded its balance reach zero, and
-        the model returned Infeasible for an ordinary overdrawn account.  A
-        one-dollar outflow flipped the same currency from "may not trade"
-        to "may buy without limit".
-
-        Purely linear.
-        """
-        max_lag = max(self.cfg.tenors.values())
-
-        for ccy in self.active_foreign_ccys:
-            horizon = self.cfg.horizon_days
-
-            # Find the last day with a non-zero cashflow.
-            last_activity_day = -1
-            for d in range(horizon):
-                if abs(self.cf.get(ccy, d)) > 1e-9:
-                    last_activity_day = d
-
-            # ── Rule 1: Sweep deadline ──
-            sweep_by = last_activity_day + max_lag + 1
-
-            if sweep_by < horizon:
-                for d in range(sweep_by, horizon):
-                    prob += (
-                        self._v("bal", ccy, d) == 0,
-                        f"no_carry_sweep_{ccy}_{d}",
-                    )
-                log.debug(
-                    "No-carry-trade sweep for %s: "
-                    "last_activity=D%d, zero from D%d",
-                    ccy, last_activity_day, sweep_by,
-                )
 
     # ── Objective ──────────────────────────
 
@@ -1002,18 +955,14 @@ class CashOptimizer:
         self._add_activation_linking(prob)
         self._add_commission_tier_linking(prob)
 
+        if flags.no_loop:
+            self._add_no_loop_constraints(prob)
+        else:
+            log.info("  SKIPPED: no-loop constraints")
         if flags.terminal_sweep:
             self._add_terminal_sweep(prob)
         else:
             log.info("  SKIPPED: terminal sweep constraints")
-        if flags.anti_speculative:
-            self._add_anti_speculative_constraint(prob)
-        else:
-            log.info("  SKIPPED: anti-speculative constraints")
-        if flags.no_carry_trade:
-            self._add_no_carry_trade_constraint(prob)
-        else:
-            log.info("  SKIPPED: no-carry-trade constraints")
         if flags.holding_ceiling:
             self._add_holding_ceiling(prob)
         else:

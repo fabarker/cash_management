@@ -41,35 +41,36 @@ class ConstraintFlags:
     ----------
     terminal_sweep : bool
         Force all foreign balances to zero at the end of the horizon.
-    anti_speculative : bool
-        Cap cumulative buys per currency, day by day, to the deepest
-        funding shortfall the cash ladder actually reaches within the
-        settlement window ahead — preventing speculative carry trades
-        without blocking genuine pre-funding of a timing gap.
-    no_carry_trade : bool
-        Enforce monotonic drawdown of foreign balances on days with no
-        future cashflow activity, preventing the optimizer from holding
-        foreign currency purely for yield (carry-trade behaviour).
+    no_loop : bool
+        Forbid buying and selling the same currency for the same
+        settlement day.  It exists for the case where a wash trade is
+        forced rather than chosen: a need below the minimum ticket can
+        otherwise be dealt as two legal tickets netting to an illegal
+        amount, which the holding ceiling cannot see because the position
+        nets to zero every day.
     holding_ceiling : bool
-        Cap the foreign balance held at the end of each day at the
-        deepest funding shortfall reachable from a trade dealt that day.
-        Expressed on the holding rather than on the purchases, so it
-        constrains currency that arrived as a receipt as well as
-        currency that was bought.  Defaults to ``False`` while the
-        constraints it is intended to replace are still active.
+        Cap the foreign balance held at the end of each day at what the
+        near-term ladder can justify: the funding hole a trade dealt that
+        day could still settle against, plus whatever part of the
+        do-nothing holding a remaining outflow will consume.
+
+        Expressed on the holding rather than on the purchases, which is
+        what lets one rule do the work of three.  It caps what is bought,
+        because a purchase has to land somewhere.  It forces a sweep once
+        obligations have passed, because the ceiling falls to zero.  And
+        it also reaches currency that arrived as a receipt, which a cap on
+        purchases cannot see at all.
     """
 
     terminal_sweep: bool = True
-    anti_speculative: bool = True
-    no_carry_trade: bool = True
-    holding_ceiling: bool = False
+    no_loop: bool = True
+    holding_ceiling: bool = True
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
         flags = {
             "terminal_sweep": self.terminal_sweep,
-            "anti_speculative": self.anti_speculative,
-            "no_carry_trade": self.no_carry_trade,
+            "no_loop": self.no_loop,
             "holding_ceiling": self.holding_ceiling,
         }
         on = [k for k, v in flags.items() if v]
@@ -355,14 +356,11 @@ class Config:
     # position still cannot be built) while giving the solver room to
     # work.  The allowance is ``max(cap * tolerance, min_slack)``, with
     # ``min_slack`` in the foreign currency's own units.
-    anti_speculative_tolerance: float = 1e-6
-    anti_speculative_min_slack: float = 1.0
-
-    # Slack on the holding ceiling.  Deliberately zero: the tolerance the
-    # anti-speculative cap needs exists because the terminal sweep drives
-    # cumulative purchases exactly onto that cap, leaving a pin the solver
-    # cannot certify.  A ceiling on a balance has no such pin, so start
-    # exact and only loosen this if degeneracy actually shows up.
+    # Slack on the holding ceiling.  Deliberately zero.  The cap it
+    # replaced needed a tolerance because the terminal sweep drove
+    # cumulative purchases exactly onto it, leaving a pin the solver could
+    # not certify; a ceiling on a balance has no such pin and has not
+    # needed one.  Loosen only if degeneracy actually shows up.
     holding_tolerance: float = 0.0
     holding_min_slack: float = 0.0
 
@@ -575,22 +573,6 @@ class Config:
         if self.holding_min_slack < 0:
             raise ValueError(
                 f"holding_min_slack must be >= 0, got {self.holding_min_slack}"
-            )
-        if self.anti_speculative_tolerance < 0:
-            raise ValueError(
-                f"anti_speculative_tolerance must be >= 0, "
-                f"got {self.anti_speculative_tolerance}"
-            )
-
-        if self.optimality_passes < 0:
-            raise ValueError(
-                f"optimality_passes must be >= 0, got {self.optimality_passes}"
-            )
-
-        if self.anti_speculative_min_slack < 0:
-            raise ValueError(
-                f"anti_speculative_min_slack must be >= 0, "
-                f"got {self.anti_speculative_min_slack}"
             )
 
         for name, rates in (("credit_carry_pa", self.credit_carry_pa),

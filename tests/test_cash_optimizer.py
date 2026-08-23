@@ -215,7 +215,7 @@ class TestTradeRateValuation(CostAssertions):
         self.assertEqual(r.trades[0].tenor, "T0")
 
     def test_liquidates_even_with_the_terminal_sweep_off(self):
-        flags = ConstraintFlags(terminal_sweep=False, no_carry_trade=False)
+        flags = ConstraintFlags(terminal_sweep=False, holding_ceiling=False)
         r = solve([], {"USD": 1_000_000}, constraints=flags)
         terminal = [b.balance for b in r.balances
                     if b.ccy == "USD" and b.day == 4][0]
@@ -248,9 +248,13 @@ class TestTradeRateValuation(CostAssertions):
 # F9 — the purchase cap must respect timing
 # ─────────────────────────────────────────────────────────────
 
-class TestAntiSpeculativeCap(CostAssertions):
-    """The cap used to net inflows against outflows across the whole horizon,
-    so a real two-day shortfall could not be funded at all."""
+class TestFundingNeedIsMeasuredByTiming(CostAssertions):
+    """A genuine timing gap must be fundable, and a receipt that already
+    covers a later payment must not require buying anything.
+
+    Netting every inflow against every outflow across the horizon gets
+    both of these wrong in opposite directions, which is why the need is
+    measured by walking the ladder day by day."""
 
     CHEAP = dict(
         commission_tiers=[CommissionTier(500_000_000, 0.1)],
@@ -360,7 +364,7 @@ class TestGuardRails(CostAssertions):
         self.assertNotIn("RESERVE", r.format_summary().upper())
 
     def test_speculation_stays_blocked_at_any_carry_differential(self):
-        flags = ConstraintFlags(no_carry_trade=False, terminal_sweep=False)
+        flags = ConstraintFlags(terminal_sweep=False)
         for usd_rate in [5.0, 50.0, 200.0]:
             with self.subTest(usd_rate=usd_rate):
                 r = solve([], {"GBP": 50_000_000, "USD": 1.0},
@@ -413,7 +417,7 @@ class TestOptimizationInvariants(CostAssertions):
 
     def test_relaxing_a_constraint_cannot_raise_the_optimum(self):
         for flows, opening in self.SCENARIOS:
-            for flag in ["anti_speculative", "no_carry_trade"]:
+            for flag in ["holding_ceiling", "terminal_sweep"]:
                 with self.subTest(flows=flows, flag=flag):
                     constrained = solve(flows, opening)
                     relaxed = solve(flows, opening,
@@ -844,25 +848,20 @@ class TestManualPlanViolations(CostAssertions):
             [ManualTrade("USD", 0, "T2", Direction.BUY, 100_000.0)])
         self.assertEqual(manager.constraint_violations(legal), [])
 
-    def test_a_wash_trade_is_still_reported(self):
-        # Buy and sell landing on the same settlement day.  The rule that
-        # named this specifically has been removed -- it could never bind,
-        # because a wash trade pays the spread and two commissions and the
-        # objective rejects it unprompted.  The plan is still illegal on
-        # its size, and must still come back reported rather than silently
-        # accepted.
+    def test_a_wash_trade_is_caught(self):
         manager = self._manager()
         looped = manager.execute_trades([
             ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0),
             ManualTrade("USD", 1, "T1", Direction.SELL, 800_000.0),
         ])
-        self.assertNotEqual(manager.constraint_violations(looped), [])
+        self.assertTrue(any("no_loop" in v
+                            for v in manager.constraint_violations(looped)))
 
     def test_buying_beyond_the_funding_need_is_caught(self):
         manager = self._manager()
         oversized = manager.execute_trades(
             [ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0)])
-        self.assertTrue(any("anti_speculative" in v
+        self.assertTrue(any("holding_ceiling" in v
                             for v in manager.constraint_violations(oversized)))
 
     def test_leaving_a_position_open_is_caught(self):

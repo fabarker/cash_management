@@ -834,17 +834,31 @@ class CashManager:
         violations: List[str] = []
         trades = result.trades
 
-        if flags.anti_speculative:
+        if flags.no_loop:
+            settle: Dict[Tuple[str, int], set] = {}
+            for t in trades:
+                settle.setdefault((t.ccy, t.settle_day), set()).add(
+                    t.direction.value)
+            for (ccy, day), directions in sorted(settle.items()):
+                if len(directions) > 1:
+                    violations.append(
+                        f"no_loop: {ccy} is both bought and sold for "
+                        f"settlement on day {day}")
+
+        if flags.holding_ceiling:
             optimizer = CashOptimizer(cfg, self._cashflows,
                                       opening_balances=self._opening)
             for ccy in optimizer.active_foreign_ccys:
-                bought = sum(t.amount for t in trades
-                             if t.ccy == ccy and t.direction == Direction.BUY)
-                cap = max(optimizer._shortfall_profile(ccy), default=0.0)
-                if bought > cap + max(cap * 1e-6, 1.0):
-                    violations.append(
-                        f"anti_speculative: {bought:,.2f} {ccy} bought against "
-                        f"a funding need of {cap:,.2f}")
+                ceiling = optimizer._holding_ceiling(ccy)
+                for b in result.balances:
+                    if b.ccy != ccy:
+                        continue
+                    cap = ceiling[b.day]
+                    if b.balance > cap + max(cap * 1e-6, 1.0):
+                        violations.append(
+                            f"holding_ceiling: {ccy} holds {b.balance:,.2f} "
+                            f"on day {b.day} against a ceiling of {cap:,.2f}")
+                        break
 
         if cfg.min_trade:
             for t in trades:
