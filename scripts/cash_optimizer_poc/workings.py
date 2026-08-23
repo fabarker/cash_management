@@ -1,5 +1,19 @@
 """Show the arithmetic behind each line of the cost breakdown.
 
+One line is easy to misread and is named carefully because of it.  "Rate vs
+spot-mid reference" is not the dealing spread: the model prices every trade
+against the mid at the *spot* tenor, because that is what
+``Result.reference_value`` values the whole book at.  So the figure bundles
+the half-spread with the forward points from the trade tenor back to spot,
+and it can be **negative** — dealing T+0 in a currency yielding well below
+base earns a better rate than the spot-mid reference assumes, and the line
+becomes a credit.  Three trades in the shipped scenario library do exactly
+that.  It is not double-counted against carry: under covered interest
+parity the points and the carry differential are the same quantity seen
+from two sides, and the model charges the rate difference here and the
+carry there, which nets correctly.
+
+
 The cost model is already written out in four places, and this is a fifth.
 That is the single biggest hazard in the codebase, so this module does not
 get to be trusted: it recomputes every component independently and then
@@ -65,7 +79,7 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
     credit = Component("credit_carry", "Credit carry (differential)", 0.0)
     debit = Component("debit_carry", "Debit carry (overdraft)", 0.0)
     commission = Component("commission", "Commission", 0.0)
-    spread = Component("spread", "FX spread paid", 0.0)
+    spread = Component("spread", "Rate vs spot-mid reference", 0.0)
     unwind = Component("terminal_unwind", "Terminal unwind", 0.0)
 
     # ── Base overdraft ────────────────────────────────────────
@@ -142,7 +156,7 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
             spread.value += amount_base
             spread.lines.append(
                 f"{ccy} day {day} ({_rate(rate)} {tenor} "
-                f"{'ask' if buying else 'bid'} - {_rate(s_mid)} mid) x "
+                f"{'ask' if buying else 'bid'} - {_rate(s_mid)} spot mid) x "
                 f"{_fmt(amount, 0)} = {_fmt(amount_base)}"
             )
 

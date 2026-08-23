@@ -146,8 +146,11 @@ reconciling. Update all of them together.
 Quotes are **base currency per 1 unit of foreign** (`FXTenorQuote(bid, ask)` per ccy per
 tenor; `Config.validate()` enforces `bid < ask`).
 
-- **Buy foreign** → pay base at the **ask**
-- **Sell foreign** → receive base at the **bid**
+- **Buy foreign** → pay base at the **ask**; base falls by `ask x amount`, foreign rises
+- **Sell foreign** → receive base at the **bid**; base rises by `bid x amount`, foreign falls
+
+Verified end to end on solved plans, both legs, in both directions. Forwards carry the
+right sign too: every currency yielding more than base trades at a forward discount.
 - Carry and exposure are valued at the **spot tenor** (`Config.spot_tenor`, default `"T2"`),
   not the trade tenor: credit carry at spot bid, debit carry at spot ask, exposure at spot mid.
 
@@ -364,6 +367,15 @@ gamed by selling a sliver of currency purely to manufacture the overdraft it loo
   `Result._tenor_decomposition_row()`. Any change to the economics has to land in
   all of them or the comparison tables stop reconciling. This remains the single
   biggest hazard in the codebase.
+- **`spread_cost` is not the dealing spread.** It is the deal rate against the mid at
+  the *spot* tenor, because that is what `reference_value` prices the whole book at.
+  So it bundles the half-spread with the forward points back to spot, and it can be
+  **negative** — dealing T+0 in a currency yielding well below base beats the spot-mid
+  reference, and the line becomes a credit. Three trades in the shipped scenario
+  library do this. It is not double-counted against carry: under covered interest
+  parity the points and the carry differential are one quantity seen from two sides,
+  charged once here and once there, and they net. `models.py` calls it "Rate vs
+  reference" for this reason; `workings.py` now agrees.
 - **The after-cost ladder is display-only** — `Result.compute_after_cost_balances()` accrues
   per-currency interest and deducts commission on the settlement day, and does not feed back
   into the objective.
