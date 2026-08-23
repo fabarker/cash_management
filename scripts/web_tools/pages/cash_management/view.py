@@ -401,7 +401,7 @@ def build_view() -> CashManagementRefs:
                         base_ccy_label = ui.label('—').classes('stat-value')
 
                     with ui.column().classes('gap-1'):
-                        ui.label('Group Number').classes('stat-label')
+                        ui.label('Scenario').classes('stat-label')
                         funding_id_label = ui.label('—').classes('stat-value')
 
                     with ui.column().classes('gap-1'):
@@ -431,8 +431,11 @@ def build_view() -> CashManagementRefs:
                 with ui.row().classes('items-center gap-3'):
                     holding_ceiling_switch = ui.switch('Restrict speculative holdings', value=True)
                     ui.label(
-                        'When ON, T+0 trades are only allowed to cover a same-day debit.'
-                    ).style('font-size: 13px; color: #6c757d;')
+                        'When ON, a foreign balance may not exceed what the cash '
+                        'flows need within the settlement window, so currency '
+                        'cannot be held for its yield. It bounds balances, not '
+                        'tenors — T+0 dealing is unaffected.'
+                    ).style('font-size: 13px; color: #6c757d; max-width: 520px;')
 
             # ── Cash Projections — Pre-Trade (hidden until load) ──
             with ui.element('div').classes('card-section hidden') as ledger_section:
