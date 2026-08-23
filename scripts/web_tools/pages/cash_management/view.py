@@ -84,11 +84,11 @@ def build_view() -> CashManagementRefs:
 
 
         /* ─── Info list items (FX quotes, rates — same style as commission tiers) ─── */
-        /* Cells that carry a tooltip: hint it before the cursor lands. */
+        /* Cells that carry a tooltip.  The cursor is the only hint --
+           an underline was tried and read as a formatting artefact on
+           columns that are already dense with figures. */
         .rates-td.has-tip, .rates-th.has-tip {
             cursor: help;
-            text-decoration: underline dotted rgba(31, 56, 100, 0.45);
-            text-underline-offset: 3px;
         }
         /* The tooltip itself is a Quasar q-tooltip, which defaults to a
            narrow one-line chip; these give it room for the arithmetic. */
