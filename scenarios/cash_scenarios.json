@@ -110,7 +110,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -183,7 +183,7 @@
         "EUR",
         "CHF"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -269,17 +269,17 @@
       "cash_flows": [
         {
           "ccy": "GBP",
-          "day": 3,
+          "day": 2,
           "amount": -700000.0
         },
         {
           "ccy": "EUR",
-          "day": 5,
+          "day": 3,
           "amount": -1100000.0
         },
         {
           "ccy": "CHF",
-          "day": 6,
+          "day": 4,
           "amount": -400000.0
         }
       ],
@@ -297,7 +297,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 6,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -362,7 +362,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -419,7 +419,7 @@
         },
         {
           "ccy": "USD",
-          "day": 5,
+          "day": 4,
           "amount": -950000.0
         }
       ],
@@ -437,7 +437,7 @@
         "GBP",
         "EUR"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -489,12 +489,12 @@
       "cash_flows": [
         {
           "ccy": "EUR",
-          "day": 2,
+          "day": 1,
           "amount": -1600000.0
         },
         {
           "ccy": "EUR",
-          "day": 5,
+          "day": 4,
           "amount": 1750000.0
         }
       ],
@@ -513,7 +513,7 @@
         "USD",
         "CHF"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -611,7 +611,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -664,7 +664,7 @@
       "cash_flows": [
         {
           "ccy": "USD",
-          "day": 6,
+          "day": 4,
           "amount": -50000.0
         }
       ],
@@ -686,7 +686,7 @@
         "USD",
         "JPY"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -752,7 +752,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 6,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -822,7 +822,7 @@
         "CHF",
         "EUR"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -855,16 +855,16 @@
       "fx_quotes": {
         "EUR": {
           "T0": {
-            "bid": 0.9500621171,
-            "ask": 0.9505372669
+            "bid": 0.9501624,
+            "ask": 0.9506376
           },
           "T1": {
             "bid": 0.9501122555,
             "ask": 0.9505874305
           },
           "T2": {
-            "bid": 0.9501624,
-            "ask": 0.9506376
+            "bid": 0.9500621171,
+            "ask": 0.9505372669
           }
         }
       },
@@ -874,7 +874,7 @@
       "cash_flows": [
         {
           "ccy": "EUR",
-          "day": 6,
+          "day": 4,
           "amount": 880000.0
         }
       ],
@@ -895,7 +895,7 @@
         "JPY",
         "CHF"
       ],
-      "horizon_days": 9,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1006,33 +1006,28 @@
       "cash_flows": [
         {
           "ccy": "USD",
-          "day": 3,
+          "day": 1,
           "amount": -1200000.0
         },
         {
           "ccy": "EUR",
-          "day": 4,
+          "day": 2,
           "amount": -800000.0
         },
         {
           "ccy": "JPY",
-          "day": 5,
+          "day": 3,
           "amount": -180000000.0
         },
         {
           "ccy": "CHF",
-          "day": 6,
+          "day": 4,
           "amount": -650000.0
         },
         {
           "ccy": "USD",
-          "day": 7,
+          "day": 3,
           "amount": 700000.0
-        },
-        {
-          "ccy": "CHF",
-          "day": 8,
-          "amount": 200000.0
         }
       ],
       "min_trade": 0.0,
@@ -1050,7 +1045,7 @@
         "GBP",
         "EUR"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1119,12 +1114,12 @@
       "cash_flows": [
         {
           "ccy": "GBP",
-          "day": 3,
+          "day": 2,
           "amount": -900000.0
         },
         {
           "ccy": "EUR",
-          "day": 5,
+          "day": 4,
           "amount": -1400000.0
         }
       ],
@@ -1144,7 +1139,7 @@
         "GBP",
         "CHF"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1232,17 +1227,17 @@
       "cash_flows": [
         {
           "ccy": "USD",
-          "day": 2,
+          "day": 1,
           "amount": -1800000.0
         },
         {
           "ccy": "CHF",
-          "day": 5,
+          "day": 3,
           "amount": -900000.0
         },
         {
           "ccy": "GBP",
-          "day": 6,
+          "day": 4,
           "amount": -450000.0
         }
       ],
@@ -1261,7 +1256,7 @@
         "USD",
         "EUR"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1330,12 +1325,12 @@
       "cash_flows": [
         {
           "ccy": "USD",
-          "day": 3,
+          "day": 2,
           "amount": -2200000.0
         },
         {
           "ccy": "EUR",
-          "day": 5,
+          "day": 4,
           "amount": -1500000.0
         }
       ],
@@ -1354,7 +1349,7 @@
         "EUR",
         "USD"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1428,12 +1423,12 @@
       "cash_flows": [
         {
           "ccy": "EUR",
-          "day": 4,
+          "day": 2,
           "amount": 1100000.0
         },
         {
           "ccy": "USD",
-          "day": 5,
+          "day": 4,
           "amount": -1300000.0
         }
       ],
@@ -1451,7 +1446,7 @@
         "GBP",
         "USD"
       ],
-      "horizon_days": 6,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1521,7 +1516,7 @@
         "EUR",
         "USD"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1597,7 +1592,7 @@
         "EUR",
         "CHF"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1698,7 +1693,7 @@
         "JPY",
         "USD"
       ],
-      "horizon_days": 8,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1755,12 +1750,12 @@
         },
         {
           "ccy": "USD",
-          "day": 3,
+          "day": 2,
           "amount": 1100000.0
         },
         {
           "ccy": "USD",
-          "day": 6,
+          "day": 4,
           "amount": -900000.0
         }
       ],
@@ -1779,7 +1774,7 @@
         "USD",
         "EUR"
       ],
-      "horizon_days": 7,
+      "horizon_days": 5,
       "tenors": {
         "T0": 0,
         "T1": 1,
@@ -1850,12 +1845,12 @@
       "cash_flows": [
         {
           "ccy": "USD",
-          "day": 3,
+          "day": 2,
           "amount": -2400000.0
         },
         {
           "ccy": "EUR",
-          "day": 5,
+          "day": 4,
           "amount": -1800000.0
         }
       ],
