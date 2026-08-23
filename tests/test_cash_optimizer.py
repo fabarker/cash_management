@@ -1215,6 +1215,152 @@ class TestDayCount(CostAssertions):
             Config(default_day_count=0)
 
 
+class TestHoldingCorridor(CostAssertions):
+    """The balance must stay inside the corridor the cash flows define:
+    a ceiling on what may be held, a floor on how deep an overdraft may go.
+
+    One rule replaced a cumulative purchase cap and a three-part no-carry
+    rule.  These tests cover what each of them used to guarantee, plus the
+    two cases the old rules got wrong."""
+
+    HIGH_USD = dict(credit_carry_pa={"GBP": 0.5, "USD": 18.0,
+                                     "EUR": 1.0, "JPY": 0.01},
+                    debit_carry_pa={"GBP": 6.0, "USD": 9.0,
+                                    "EUR": 9.0, "JPY": 9.0})
+
+    def _ceiling(self, flows, opening=None, horizon=8):
+        cfg = Config(horizon_days=horizon)
+        cf = CashFlowSet(horizon_days=horizon)
+        for ccy, day, amount in flows:
+            cf.add(ccy, day, amount)
+        opt = CashOptimizer(cfg, cf, opening_balances=dict(opening or {}))
+        return [round(v) for v in opt._holding_ceiling("USD")]
+
+    # ── what the old rules got wrong ──
+
+    def test_an_opening_overdraft_can_be_cured(self):
+        # The rule this replaced read the cashflow file alone, so an opening
+        # overdraft granted no permission to buy while the sweep deadline
+        # still demanded the balance reach zero.  Ordinary overdrawn account,
+        # returned Infeasible.
+        r = solve([], {"GBP": 6_000_000, "USD": -200_000})
+        self.assertEqual(r.status, "Optimal")
+        self.assertTrue(r.trades, "the overdraft has to be bought back")
+
+    def test_one_dollar_does_not_unlock_the_currency(self):
+        # It used to: an outflow of any size flipped a currency from "may
+        # not trade at all" to "may buy without limit".
+        without = solve([], {"GBP": 6_000_000, "USD": -200_000})
+        with_a_dollar = solve([("USD", 3, -1.0)],
+                              {"GBP": 6_000_000, "USD": -200_000})
+        self.assertEqual(without.status, "Optimal")
+        self.assertEqual(with_a_dollar.status, "Optimal")
+        self.assertAlmostEqual(
+            with_a_dollar.total_cost, without.total_cost, delta=2.0,
+            msg="a one-dollar outflow must not change what may be traded")
+
+    def test_a_receipt_covering_a_later_payment_may_be_held(self):
+        # The hole is measured on the do-nothing ladder, which already
+        # contains the receipt -- so a receipt that covers a later payment
+        # digs no hole.  A ceiling built from the hole alone forbade holding
+        # money the account was always going to spend, and the only way out
+        # was to sell it and buy it back for two spreads and two commissions.
+        ceiling = self._ceiling([("USD", 1, 600_000), ("USD", 5, -400_000)])
+        self.assertGreaterEqual(
+            ceiling[3], 400_000,
+            "the earmarked part of a receipt must be holdable")
+        self.assertEqual(ceiling[7], 0,
+                         "and nothing may remain once the payment is made")
+
+    def test_an_unearmarked_receipt_may_not_be_held(self):
+        ceiling = self._ceiling([("USD", 2, 900_000)])
+        self.assertEqual(ceiling[4:], [0, 0, 0, 0],
+                         "a receipt with nothing to fund must be swept")
+
+    # ── what the old rules got right, still guaranteed ──
+
+    def test_nothing_is_held_before_the_reach_window(self):
+        ceiling = self._ceiling([("USD", 6, -250_000)])
+        self.assertEqual(ceiling[:4], [0, 0, 0, 0],
+                         "a day-6 payment is out of reach until day 4")
+        self.assertEqual(ceiling[4], 250_000)
+
+        r = solve([("USD", 6, -250_000)], {"GBP": 8_000_000},
+                  horizon=8, **self.HIGH_USD)
+        early = [b.balance for b in r.balances
+                 if b.ccy == "USD" and b.day < 4]
+        self.assertTrue(all(abs(v) < 1.0 for v in early),
+                        "no position may exist before the payment is reachable")
+
+    def test_no_position_is_built_for_yield(self):
+        for rate in (18.0, 50.0, 200.0):
+            with self.subTest(usd_rate=rate):
+                r = solve([], {"GBP": 50_000_000, "USD": 1.0},
+                          commission_tiers=[CommissionTier(500_000_000, 0.0)],
+                          fx_exposure_bps_per_day=0.0,
+                          credit_carry_pa={"GBP": 0.5, "USD": rate,
+                                           "EUR": 1.0, "JPY": 0.01},
+                          debit_carry_pa={"GBP": 6.0, "USD": 9.0,
+                                          "EUR": 9.0, "JPY": 9.0})
+                peak = max((b.balance for b in r.balances
+                            if b.ccy == "USD"), default=0.0)
+                self.assertLess(peak, 1_000.0)
+
+    def test_a_tiny_need_draws_only_a_tiny_trade(self):
+        r = solve([("USD", 6, -1_000)], {"GBP": 20_000_000},
+                  horizon=8, **self.HIGH_USD)
+        bought = sum(t.amount for t in r.trades
+                     if t.ccy == "USD" and t.direction == Direction.BUY)
+        self.assertLess(bought, 1_100.0,
+                        "18% on a large position must not look worth funding")
+
+    # ── the floor ──
+
+    def test_a_short_position_cannot_be_manufactured(self):
+        # Selling a currency you do not own is the same speculation in
+        # reverse.  Doing nothing lands exactly on the floor, so this
+        # forbids only overdrafts the model would have to manufacture.
+        r = solve([("USD", 6, -250_000)], {"GBP": 8_000_000}, horizon=8,
+                  credit_carry_pa={"GBP": 0.5, "USD": 0.01,
+                                   "EUR": 1.0, "JPY": 0.01},
+                  debit_carry_pa={"GBP": 6.0, "USD": 9.0,
+                                  "EUR": 9.0, "JPY": 9.0})
+        worst = min((b.balance for b in r.balances if b.ccy == "USD"),
+                    default=0.0)
+        self.assertGreaterEqual(
+            worst, -250_000.01,
+            "the overdraft may not run deeper than the cash flows dig")
+
+    def test_an_overdraft_the_cashflows_dig_is_still_allowed(self):
+        # The floor must not forbid a genuine overdraft -- running one is a
+        # priced choice, not a violation.
+        r = solve([("USD", 1, -100_000), ("USD", 3, 100_000)],
+                  {"GBP": 5_000_000})
+        self.assertEqual(r.status, "Optimal")
+        self.assertEqual(r.trades, [],
+                         "overdraft is cheaper here than two commissions")
+
+    # ── the minimum-ticket corner ──
+
+    def test_a_wash_trade_cannot_manufacture_a_legal_ticket(self):
+        # A need below the minimum ticket has no legal plan.  Without
+        # no_loop the model deals two legal tickets netting to an illegal
+        # amount, and the corridor cannot see it: the position nets to zero
+        # on every day.  This is the case that showed no_loop is not the
+        # dead weight a cumulative purchase cap made it look.
+        blocked = solve([("USD", 2, -1_000)], {"GBP": 5_000_000},
+                        min_trade=50_000.0)
+        self.assertEqual(blocked.status, "Infeasible")
+
+        allowed = solve([("USD", 2, -1_000)], {"GBP": 5_000_000},
+                        min_trade=50_000.0,
+                        constraints=ConstraintFlags(no_loop=False))
+        self.assertEqual(allowed.status, "Optimal",
+                         "if this ever goes Infeasible the corridor has "
+                         "started covering the wash route and no_loop can "
+                         "be reconsidered")
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""
