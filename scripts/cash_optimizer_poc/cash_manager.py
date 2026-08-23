@@ -540,13 +540,25 @@ class CashManager:
         # Build settlement schedule: (ccy, settle_day) -> net foreign amount
         # BUY adds foreign ccy, SELL removes it
         settle_schedule: Dict[Tuple[str, int], float] = {}
+        base_impact: Dict[int, float] = {}
         for t in resolved_trades:
             key = (t.ccy, t.settle_day)
             delta = t.amount if t.direction == Direction.BUY else -t.amount
             settle_schedule[key] = settle_schedule.get(key, 0.0) + delta
 
+            # What the trade does to base cash, at the rate it is actually
+            # dealt at: buying foreign costs base at the ask, selling
+            # generates base at the bid.  This has to be worked out per
+            # trade, because the settlement schedule above nets amounts
+            # together and loses the tenor each came from.
+            if t.direction == Direction.BUY:
+                moved = -self._cfg.fx_ask(t.ccy, t.tenor) * t.amount
+            else:
+                moved = self._cfg.fx_bid(t.ccy, t.tenor) * t.amount
+            base_impact[t.settle_day] = base_impact.get(t.settle_day, 0.0) + moved
+
         # ── Balance evolution ──
-        balances = self._compute_balances(settle_schedule)
+        balances = self._compute_balances(settle_schedule, base_impact)
 
         # ── Cost computation ──
         cost = self._compute_cost(balances, resolved_trades)
@@ -621,6 +633,7 @@ class CashManager:
     def _compute_balances(
         self,
         settle_schedule: Dict[Tuple[str, int], float],
+        base_impact: Optional[Dict[int, float]] = None,
     ) -> List[BalanceSnapshot]:
         """
         Compute end-of-day balances for all currencies across the horizon,
@@ -635,16 +648,13 @@ class CashManager:
         base_running = self._opening.get(base, 0.0)
         for d in range(self._cfg.horizon_days):
             base_cf = self._cashflows.get(base, d)
-            # Base impact from foreign trades settling today
-            base_trade_impact = 0.0
-            for ccy in self._foreign_ccys:
-                net_foreign = settle_schedule.get((ccy, d), 0.0)
-                # Positive net_foreign = bought foreign → costs base (ask)
-                # Negative net_foreign = sold foreign → generates base (bid)
-                # Use spot mid for this simplified balance computation
-                # (manual trades don't have tenor-specific rate in the
-                #  settle_schedule, so spot mid is appropriate)
-                base_trade_impact -= net_foreign * self._cfg.fx_spot_mid(ccy)
+            # Base impact from foreign trades settling today, at the rate
+            # each was dealt at.  This used to convert the netted foreign
+            # amount at spot mid, which is not a rate anyone deals on: the
+            # same trade priced here and by the optimizer differed by the
+            # half-spread, and always in the manual plan's favour, so
+            # compare() flattered whichever side was entered by hand.
+            base_trade_impact = (base_impact or {}).get(d, 0.0)
 
             bal = base_running + base_cf + base_trade_impact
             bal_r = round(bal, 2)

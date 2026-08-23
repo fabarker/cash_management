@@ -776,6 +776,58 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestManualAndOptimizerAgree(CostAssertions):
+    """The manual evaluator converted foreign settlements at spot mid while
+    the optimizer used the tenor's bid or ask, so the same trade produced
+    different base balances depending which path priced it — by the
+    half-spread, always in the manual plan's favour (F22)."""
+
+    def _replay(self, flows, opening):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        for ccy, day, amount in flows:
+            cf.add(ccy, day, amount)
+        manager = CashManager(cfg, cf, opening_balances=dict(opening))
+        optimal = manager.solve_optimal()
+        replay = manager.execute_trades(
+            [ManualTrade(t.ccy, t.day, t.tenor, t.direction, t.amount)
+             for t in optimal.trades])
+        return optimal, replay
+
+    def test_base_balances_match_on_identical_trades(self):
+        for flows, opening in [([("USD", 2, -100_000)], {"GBP": 5_000_000}),
+                               ([], {"USD": 1_000_000})]:
+            with self.subTest(flows=flows):
+                optimal, replay = self._replay(flows, opening)
+                opt_bal = {b.day: b.balance for b in optimal.balances
+                           if b.ccy.startswith("GBP")}
+                man_bal = {b.day: b.balance for b in replay.balances
+                           if b.ccy.startswith("GBP")}
+                for day, value in opt_bal.items():
+                    self.assertCostClose(man_bal[day], value)
+
+    def test_a_buy_is_priced_at_the_ask(self):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        manager = CashManager(cfg, cf, opening_balances={"GBP": 5_000_000})
+        replay = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.BUY, 100_000.0)])
+        spent = 5_000_000 - [b.balance for b in replay.balances
+                             if b.ccy.startswith("GBP") and b.day == 2][0]
+        self.assertCostClose(spent, cfg.fx_ask("USD", "T2") * 100_000)
+
+    def test_a_sell_is_priced_at_the_bid(self):
+        cfg = Config()
+        manager = CashManager(cfg, CashFlowSet(horizon_days=5),
+                              opening_balances={"USD": 1_000_000})
+        replay = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.SELL, 1_000_000.0)])
+        received = [b.balance for b in replay.balances
+                    if b.ccy.startswith("GBP") and b.day == 2][0]
+        self.assertCostClose(received, cfg.fx_bid("USD", "T2") * 1_000_000)
+
+
 class TestDerivedConfigValues(CostAssertions):
     """big_m and the FX exposure start day used to be filled in by
     __post_init__ and never refreshed, so changing max_trade, the commission
