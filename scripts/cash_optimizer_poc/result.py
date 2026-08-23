@@ -418,7 +418,7 @@ class Result:
         base_label = f"{base} (Base)"
         base_credit_rate = cfg.credit_carry_bps_per_day[base]
         base_debit_rate = cfg.debit_carry_bps_per_day[base]
-        fx_start = cfg.fx_exposure_start_day
+        fx_start = cfg.fx_exposure_from_day
         carry_start = cfg.credit_carry_start_day
         # Taken from the balances rather than Config.currencies: a currency
         # discovered from the cash flows is in the plan but not in that list,
@@ -550,7 +550,7 @@ class Result:
         settle_lag = cfg.tenors[tenor]
         settle_day = trade_day + settle_lag
         carry_start = cfg.credit_carry_start_day
-        fx_start = cfg.fx_exposure_start_day
+        fx_start = cfg.fx_exposure_from_day
 
         # Direction-appropriate rate
         if direction_value == "SELL":

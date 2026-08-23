@@ -354,20 +354,41 @@ class Config:
     # Constraint toggles
     constraints: ConstraintFlags = field(default_factory=ConstraintFlags)
 
-    # Big-M for binary trade activation.  Sized to the largest trade the
-    # model can actually place — NOT used to bound balances (see
-    # ``max_balance`` and ``CashOptimizer._compute_balance_bounds``).
-    big_m: float = field(init=False)
-
     def __post_init__(self) -> None:
-        if self.commission_tiers:
-            tier_capacity = self.commission_tiers[-1].threshold
-            self.big_m = min(self.max_trade, tier_capacity) + 1.0
-        else:
-            self.big_m = self.max_trade + 1.0
-        if self.fx_exposure_start_day is None:
-            self.fx_exposure_start_day = max(self.tenors.values()) + 1
         self.validate()
+
+    # ── Derived values ─────────────────────────────────────────
+    #
+    # Computed on access rather than stored.  They used to be filled in by
+    # __post_init__ and never refreshed, so changing max_trade, the
+    # commission schedule or the tenors afterwards left them describing the
+    # configuration as it was at construction — silently, since validate()
+    # did not re-run either.  Nothing is cached now, so nothing can go stale.
+
+    @property
+    def big_m(self) -> float:
+        """Big-M for binary trade activation.
+
+        Sized to the largest trade the model can actually place, which is
+        bounded by the commission schedule as well as by ``max_trade``.  NOT
+        used to bound balances — see ``max_balance`` and
+        ``CashOptimizer._compute_balance_bounds``.
+        """
+        if self.commission_tiers:
+            return min(self.max_trade, self.commission_tiers[-1].threshold) + 1.0
+        return self.max_trade + 1.0
+
+    @property
+    def fx_exposure_from_day(self) -> int:
+        """First day the FX exposure penalty applies.
+
+        ``fx_exposure_start_day`` is the override; left as ``None`` it
+        resolves to one day past the longest settlement lag, so a position
+        is not charged for exposure it could not yet have closed.
+        """
+        if self.fx_exposure_start_day is not None:
+            return self.fx_exposure_start_day
+        return max(self.tenors.values()) + 1
 
     # ── FX rate helpers ────────────────────────────────────────
 

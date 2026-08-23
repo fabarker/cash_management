@@ -117,6 +117,12 @@ which returns `None` for absent keys — much of the code branches on that.
   extraction so output shape stays stable.
 - `solve()` is single-shot: it raises on a second call, so build a fresh `CashOptimizer`
   (or call `mgr.solve_optimal()` again, which constructs one) to re-solve.
+- **Derived config values are computed on access, not stored.** `Config.big_m` and
+  `Config.fx_exposure_from_day` are properties. They used to be filled in by
+  `__post_init__` and never refreshed, so changing `max_trade`, the commission schedule
+  or the tenors afterwards left them describing the config as it was at construction.
+  `fx_exposure_start_day` remains the field you set; leave it `None` and
+  `fx_exposure_from_day` resolves it to one day past the longest settlement lag.
 - **Interest accrues on a day count that varies by currency.**
   `Config.day_count_basis` maps each currency to the number of days its market treats
   as a year; `Config.day_count(ccy)` reads it, falling back to `default_day_count`

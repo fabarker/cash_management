@@ -776,6 +776,45 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestDerivedConfigValues(CostAssertions):
+    """big_m and the FX exposure start day used to be filled in by
+    __post_init__ and never refreshed, so changing max_trade, the commission
+    schedule or the tenors afterwards left them describing the configuration
+    as it was at construction (F27).  They are computed on access now."""
+
+    def test_big_m_tracks_max_trade(self):
+        cfg = Config()
+        self.assertCostClose(cfg.big_m, 500_000_001.0)
+        cfg.max_trade = 1_000_000.0
+        self.assertCostClose(cfg.big_m, 1_000_001.0)
+
+    def test_big_m_tracks_the_commission_schedule(self):
+        cfg = Config()
+        cfg.commission_tiers = [CommissionTier(250_000, 20.0)]
+        self.assertCostClose(cfg.big_m, 250_001.0)
+
+    def test_the_exposure_start_day_tracks_the_tenors(self):
+        cfg = Config()
+        self.assertEqual(cfg.fx_exposure_from_day, 3)
+        cfg.tenors = {"T0": 0, "T1": 1, "T2": 2, "T5": 5}
+        self.assertEqual(cfg.fx_exposure_from_day, 6)
+
+    def test_an_explicit_exposure_start_day_is_honoured(self):
+        self.assertEqual(Config(fx_exposure_start_day=1).fx_exposure_from_day, 1)
+
+    def test_nothing_derived_is_stored(self):
+        import dataclasses
+        names = {f.name for f in dataclasses.fields(Config)}
+        self.assertNotIn("big_m", names, "a stored copy could go stale")
+        self.assertIsInstance(Config.big_m, property)
+        self.assertIsInstance(Config.fx_exposure_from_day, property)
+
+    def test_replace_carries_the_derived_values_correctly(self):
+        from dataclasses import replace
+        cfg = replace(Config(), max_trade=2_000_000.0)
+        self.assertCostClose(cfg.big_m, 2_000_001.0)
+
+
 class TestSingleClassDefinitions(CostAssertions):
     """ManualTrade and CostBreakdown were declared in models and again in
     cash_manager, the second shadowing the first.  The two CostBreakdowns
@@ -866,8 +905,8 @@ class TestConfigIsolation(CostAssertions):
                               opening_balances={"GBP": 5_000_000},
                               constraints=ConstraintFlags(no_loop=False))
         self.assertEqual(variant.config.big_m, cfg.big_m)
-        self.assertEqual(variant.config.fx_exposure_start_day,
-                         cfg.fx_exposure_start_day)
+        self.assertEqual(variant.config.fx_exposure_from_day,
+                         cfg.fx_exposure_from_day)
         self.assertEqual(variant.config.day_count("USD"), cfg.day_count("USD"))
         self.assertEqual(variant.solve_optimal().status, "Optimal")
 

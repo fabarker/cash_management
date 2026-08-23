@@ -763,7 +763,7 @@ class CashOptimizer:
         base = self.cfg.base_ccy
         base_credit_rate = self.cfg.credit_carry_bps_per_day[base]
         base_debit_rate = self.cfg.debit_carry_bps_per_day[base]
-        fx_start = self.cfg.fx_exposure_start_day
+        fx_start = self.cfg.fx_exposure_from_day
         carry_start = self.cfg.credit_carry_start_day
 
         for d in range(self.cfg.horizon_days):

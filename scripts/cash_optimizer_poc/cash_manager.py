@@ -697,7 +697,7 @@ class CashManager:
         base_label = f"{base} (Base)"
         base_credit_rate = cfg.credit_carry_bps_per_day[base]
         base_debit_rate = cfg.debit_carry_bps_per_day[base]
-        fx_start = cfg.fx_exposure_start_day
+        fx_start = cfg.fx_exposure_from_day
         carry_start = cfg.credit_carry_start_day
 
         # ── Base currency debit carry ──
