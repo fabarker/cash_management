@@ -33,9 +33,11 @@ from scripts.cash_optimizer_poc.optimizer import (
 from scripts.cash_optimizer_poc.cash_manager import CashManager, ManualTrade
 
 
-# A desk without same-day settlement: nothing can settle on the day it is
-# dealt, so a payment due today cannot be funded however much cash is held.
-# This is the replacement for the phasing conflicts as an infeasibility case.
+# A desk without same-day settlement: nothing settles on the day it is
+# dealt. Since monotonic drawdown was corrected to apply to the holding
+# rather than the signed balance, a payment due today under this setup is
+# feasible again — it is funded at T+1 and the overdraft repaid — so this
+# is no longer an infeasibility case, only a restricted one.
 NO_SAME_DAY = dict(
     tenors={"T1": 1, "T2": 2},
     spot_tenor="T2",
@@ -494,8 +496,16 @@ class TestSameDaySettlement(CostAssertions):
     def test_payment_due_today_can_be_funded(self):
         r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000})
         self.assertEqual(r.status, "Optimal", "F5: a payment due today")
-        self.assertEqual(plan_of(r), [("USD", 0, "T0", "BUY", 100_000.0)],
-                         "should cover it same-day")
+        # Funded on day 0. The tenor is the model's choice: since monotonic
+        # drawdown was corrected, settling at T+1 and repaying one day of
+        # overdraft is open to it, and at the default curve that is cheaper
+        # than same-day by about 9 in base currency — a better rate is worth
+        # more than the day of interest.
+        self.assertEqual(len(r.trades), 1)
+        trade = r.trades[0]
+        self.assertEqual((trade.ccy, trade.day, trade.direction.value,
+                          round(trade.amount, 2)),
+                         ("USD", 0, "BUY", 100_000.0))
 
     def test_single_day_horizon_is_solvable(self):
         r = solve([], {"GBP": 1_000_000, "USD": 100_000}, horizon=1)
@@ -563,9 +573,10 @@ class TestInsufficientFunds(CostAssertions):
         self.assertGreater(r.terminal_base_equivalent, 0.0)
 
     def test_constraint_conflict_is_not_called_a_funding_shortfall(self):
-        # Ample cash, but no settlement route exists on the day the payment
-        # falls due, so no plan satisfies the constraints.
-        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000}, **NO_SAME_DAY)
+        # Ample cash, but the funding required is smaller than the smallest
+        # dealable ticket and the anti-speculative cap will not permit
+        # buying a whole one, so no legal plan exists.
+        r = solve([("USD", 2, -1_000)], {"GBP": 5_000_000}, min_trade=50_000.0)
         self.assertEqual(r.status, "Infeasible")
         self.assertFalse(r.insufficient_funds,
                          "ample cash: this is a constraint conflict")
@@ -652,7 +663,7 @@ class TestNonOptimalStatus(CostAssertions):
 
     def test_infeasible_still_returns_a_result(self):
         # Infeasibility is an informative outcome, not a solver failure.
-        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000}, **NO_SAME_DAY)
+        r = solve([("USD", 2, -1_000)], {"GBP": 5_000_000}, min_trade=50_000.0)
         self.assertEqual(r.status, "Infeasible")
         self.assertEqual(r.trades, [])
 
@@ -774,6 +785,37 @@ class TestCurrencyDiscovery(CostAssertions):
             CashOptimizer(Config(fx_quotes=quotes), cf,
                           opening_balances={"GBP": 5_000_000})
         self.assertIn("credit_carry_pa", str(ctx.exception))
+
+
+class TestMonotonicDrawdown(CostAssertions):
+    """The no-carry rule means "wind a holding down, do not build it back
+    up".  Written on the signed balance it also said an overdraft may only
+    deepen and can never be repaid, which is a different claim and a wrong
+    one (F11).  It applies to the positive part now."""
+
+    def test_an_overdraft_after_the_last_activity_can_be_repaid(self):
+        # No same-day settlement, so a payment due today leaves the currency
+        # overdrawn past its last cash flow. Under the signed-balance form
+        # that overdraft could never be cleared and the model was infeasible.
+        r = solve([("USD", 0, -100_000)], {"GBP": 5_000_000}, **NO_SAME_DAY)
+        self.assertEqual(r.status, "Optimal")
+        self.assertTrue(r.trades)
+
+    def test_a_holding_still_may_not_grow_once_idle(self):
+        r = solve([], {"USD": 1_000_000})
+        held = [b.balance for b in r.balances if b.ccy == "USD"]
+        for earlier, later in zip(held, held[1:]):
+            self.assertLessEqual(later, earlier + 0.01,
+                                 "an idle holding must only wind down")
+
+    def test_the_anti_carry_intent_survives(self):
+        r = solve([], {"GBP": 50_000_000, "USD": 1.0},
+                  credit_carry_pa={"GBP": 3.65, "USD": 200.0,
+                                   "EUR": 0.2, "JPY": 0.01})
+        peak = max((b.balance for b in r.balances if b.ccy == "USD"),
+                   default=0.0)
+        self.assertLess(peak, 1_000.0,
+                        "no position should be built for yield")
 
 
 class TestManualPlanViolations(CostAssertions):

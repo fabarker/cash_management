@@ -730,11 +730,19 @@ class CashOptimizer:
                 )
 
             # ── Rule 2: Monotonic drawdown on idle days ──
+            #
+            # Written on the positive part of the balance, not the signed
+            # balance.  The rule means "wind a holding down, do not build it
+            # back up".  Applied to a signed balance it also said an
+            # overdraft may only deepen and can never be repaid, which is a
+            # different claim and a wrong one — it was one of the three
+            # constraints behind the day-0 funding trap.
             n_mono = 0
             for d in range(1, horizon):
                 if not has_future[d]:
                     prob += (
-                        self._v("bal", ccy, d) <= self._v("bal", ccy, d - 1),
+                        self._v("bal_pos", ccy, d)
+                        <= self._v("bal_pos", ccy, d - 1),
                         f"no_carry_mono_{ccy}_{d}",
                     )
                     n_mono += 1
