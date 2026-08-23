@@ -366,7 +366,15 @@ class CashManager:
         self._cashflows = cashflows
         self._opening = opening_balances or {}
         self._phasing = phasing or []
-        self._foreign_ccys = [c for c in cfg.currencies if c != cfg.base_ccy]
+        # Match the optimizer's universe: declared currencies plus anything
+        # that turns up in the opening balances or the cash flows, so a
+        # discovered currency appears in the ladder and the manual evaluator
+        # rather than silently missing from both.
+        universe = list(cfg.currencies)
+        for ccy in list(self._opening) + [c for c, _, _ in cashflows.all_entries()]:
+            if ccy not in universe:
+                universe.append(ccy)
+        self._foreign_ccys = [c for c in universe if c != cfg.base_ccy]
 
         # Override constraint flags if provided at the CashManager level
         if constraints is not None:

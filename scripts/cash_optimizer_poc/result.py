@@ -420,7 +420,11 @@ class Result:
         base_debit_rate = cfg.debit_carry_bps_per_day[base]
         fx_start = cfg.fx_exposure_start_day
         carry_start = cfg.credit_carry_start_day
-        foreign_ccys = [c for c in cfg.currencies if c != base]
+        # Taken from the balances rather than Config.currencies: a currency
+        # discovered from the cash flows is in the plan but not in that list,
+        # and omitting it here would break the reconciliation.
+        foreign_ccys = [c for c in dict.fromkeys(b.ccy for b in self.balances)
+                        if c != base and c != base_label]
 
         credit_carry = 0.0
         debit_carry = 0.0

@@ -6,6 +6,8 @@ the optimizer, result, and cash manager modules.
 """
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -393,6 +395,14 @@ class Config:
                     f"Missing fx_quotes tenors for {ccy}: {missing_tenors}"
                 )
             for tenor, quote in ccy_quotes.items():
+                if not (math.isfinite(quote.bid) and math.isfinite(quote.ask)):
+                    raise ValueError(
+                        f"fx_quotes[{ccy!r}][{tenor!r}] has a non-finite rate "
+                        f"(bid={quote.bid!r}, ask={quote.ask!r}). NaN passes "
+                        f"the bid<ask test silently — every comparison against "
+                        f"it is false — and then fails deep inside model "
+                        f"building with no indication of which quote was bad."
+                    )
                 if quote.bid >= quote.ask:
                     raise ValueError(
                         f"fx_quotes[{ccy!r}][{tenor!r}]: bid ({quote.bid}) "
@@ -440,6 +450,15 @@ class Config:
                 f"anti_speculative_min_slack must be >= 0, "
                 f"got {self.anti_speculative_min_slack}"
             )
+
+        for name, rates in (("credit_carry_pa", self.credit_carry_pa),
+                            ("debit_carry_pa", self.debit_carry_pa)):
+            for ccy, rate in rates.items():
+                if not math.isfinite(rate):
+                    raise ValueError(
+                        f"{name}[{ccy!r}] is {rate!r}, which is not a finite "
+                        f"number."
+                    )
 
         all_ccys = set(self.currencies)
         missing_credit = all_ccys - set(self.credit_carry_pa.keys())
@@ -527,6 +546,14 @@ class CashFlowSet:
 
     def add(self, ccy: str, day: int, amount: float) -> None:
         """Register a cash flow.  Validates day bounds when horizon is set."""
+        if not math.isfinite(amount):
+            raise ValueError(
+                f"Cash flow for {ccy} on day {day} is {amount!r}, which is not "
+                f"a finite number. A missing or unreadable figure must not be "
+                f"passed in as NaN: every comparison against NaN is false, so "
+                f"the currency would be judged inactive and silently dropped "
+                f"from the model. Supply the real amount, or omit the flow."
+            )
         if day < 0:
             raise ValueError(f"Cash flow day must be >= 0, got {day}")
         if self.horizon_days is not None and day >= self.horizon_days:

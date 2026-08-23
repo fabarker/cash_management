@@ -117,6 +117,19 @@ which returns `None` for absent keys — much of the code branches on that.
   extraction so output shape stays stable.
 - `solve()` is single-shot: it raises on a second call, so build a fresh `CashOptimizer`
   (or call `mgr.solve_optimal()` again, which constructs one) to re-solve.
+- **Non-finite numbers are rejected at the door.** NaN or infinity in a cash flow,
+  opening balance, FX quote or carry rate raises immediately, naming the currency and
+  day. NaN is the dangerous one: every comparison against it is false, so
+  `abs(balance) > 1e-9` answers "nothing here" for a figure that means "unreadable",
+  and the currency was silently dropped from the model.
+- **The currency universe is discovered, not declared.** `Config.currencies` is a
+  statement of intent; the model actually runs on that list plus any currency appearing
+  in the opening balances or cash flows. A projection feed can deliver an obligation in
+  a currency nobody pre-declared, and it used to be invisible everywhere. The caller's
+  `Config` is never mutated. What a discovered currency must still bring is its market
+  data — `_check_market_data()` raises if `fx_quotes` or the carry rates are missing,
+  naming the currency, what is absent, and where it came from. Which currencies exist
+  can be read off the data; an exchange rate cannot be inferred from anything.
 - **A non-optimal solver status raises, it does not return an empty result.**
   Anything other than `Optimal` or `Infeasible` — a time limit, an unbounded model, a
   solver error — raises `SolverFailure` (a `RuntimeError` subclass carrying `.status`,

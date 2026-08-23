@@ -646,6 +646,125 @@ class TestNonOptimalStatus(CostAssertions):
         self.assertEqual(r.trades, [])
 
 
+class TestNaNRejection(CostAssertions):
+    """A non-finite figure must never reach the model.  NaN is the dangerous
+    one: every comparison against it is false, so "I could not read this"
+    answers the activity test the same way "there is nothing here" does, and
+    the currency is dropped without a word (F17, F18)."""
+
+    NAN = float("nan")
+
+    def test_nan_cash_flow_is_rejected_at_entry(self):
+        cf = CashFlowSet(horizon_days=5)
+        with self.assertRaises(ValueError) as ctx:
+            cf.add("USD", 2, self.NAN)
+        self.assertIn("USD", str(ctx.exception))
+        self.assertIn("day 2", str(ctx.exception))
+
+    def test_nan_opening_balance_is_rejected(self):
+        cfg = Config()
+        cf = CashFlowSet(horizon_days=5)
+        with self.assertRaises(ValueError) as ctx:
+            CashOptimizer(cfg, cf,
+                          opening_balances={"GBP": 5e6, "USD": self.NAN})
+        self.assertIn("USD", str(ctx.exception))
+
+    def test_nan_fx_quote_is_rejected_at_config_time(self):
+        quotes = dict(Config().fx_quotes)
+        quotes["USD"] = {
+            "T0": FXTenorQuote(bid=self.NAN, ask=0.7905),
+            "T1": FXTenorQuote(bid=0.7897, ask=0.7903),
+            "T2": FXTenorQuote(bid=0.7898, ask=0.7902),
+        }
+        with self.assertRaises(ValueError) as ctx:
+            Config(fx_quotes=quotes)
+        self.assertIn("T0", str(ctx.exception))
+
+    def test_nan_carry_rate_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Config(credit_carry_pa={"GBP": 3.65, "USD": self.NAN,
+                                    "EUR": 0.2, "JPY": 0.01})
+
+    def test_infinity_is_rejected_too(self):
+        cf = CashFlowSet(horizon_days=5)
+        with self.assertRaises(ValueError):
+            cf.add("USD", 2, float("inf"))
+
+    def test_good_data_still_passes(self):
+        r = solve([("USD", 2, -100_000)], {"GBP": 5_000_000})
+        self.assertEqual(r.status, "Optimal")
+
+
+class TestCurrencyDiscovery(CostAssertions):
+    """A cash flow may arrive in a currency nobody declared.  It must be
+    modelled, not silently ignored (F19) — but only if its market data is
+    available, because a rate cannot be inferred from anything."""
+
+    def test_an_undeclared_currency_is_picked_up_from_the_cash_flows(self):
+        quotes = dict(Config().fx_quotes)
+        quotes["CHF"] = {t: FXTenorQuote(bid=0.88, ask=0.89)
+                         for t in Config().tenors}
+        cfg = Config(fx_quotes=quotes,
+                     credit_carry_pa={"GBP": 3.65, "USD": 0.5, "EUR": 0.2,
+                                      "JPY": 0.01, "CHF": 0.1},
+                     debit_carry_pa={"GBP": 5.0, "USD": 5.0, "EUR": 4.5,
+                                     "JPY": 3.0, "CHF": 4.0})
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("CHF", 2, -100_000)
+        opt = CashOptimizer(cfg, cf, opening_balances={"GBP": 5_000_000})
+
+        self.assertNotIn("CHF", cfg.currencies, "not declared")
+        self.assertIn("CHF", opt.foreign_ccys, "but discovered")
+        r = opt.solve()
+        self.assertEqual(r.status, "Optimal")
+        self.assertTrue([t for t in r.trades if t.ccy == "CHF"],
+                        "the obligation should be funded, not ignored")
+        self.assertTrue([b for b in r.balances if b.ccy == "CHF"],
+                        "and should appear in the reported balances")
+
+    def test_the_callers_config_is_not_mutated(self):
+        quotes = dict(Config().fx_quotes)
+        quotes["CHF"] = {t: FXTenorQuote(bid=0.88, ask=0.89)
+                         for t in Config().tenors}
+        cfg = Config(fx_quotes=quotes,
+                     credit_carry_pa={"GBP": 3.65, "USD": 0.5, "EUR": 0.2,
+                                      "JPY": 0.01, "CHF": 0.1},
+                     debit_carry_pa={"GBP": 5.0, "USD": 5.0, "EUR": 4.5,
+                                     "JPY": 3.0, "CHF": 4.0})
+        before = list(cfg.currencies)
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("CHF", 2, -100_000)
+        CashOptimizer(cfg, cf, opening_balances={"GBP": 5_000_000})
+        self.assertEqual(cfg.currencies, before)
+
+    def test_a_currency_without_market_data_fails_loudly(self):
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("CHF", 2, -5_000_000)
+        with self.assertRaises(ValueError) as ctx:
+            CashOptimizer(Config(), cf, opening_balances={"GBP": 5_000_000})
+        message = str(ctx.exception)
+        self.assertIn("CHF", message)
+        self.assertIn("fx_quotes", message)
+        self.assertIn("day 2", message, "should say where it came from")
+
+    def test_an_undeclared_opening_balance_is_picked_up_too(self):
+        with self.assertRaises(ValueError) as ctx:
+            CashOptimizer(Config(), CashFlowSet(horizon_days=5),
+                          opening_balances={"GBP": 5e6, "CHF": 250_000})
+        self.assertIn("opening balance", str(ctx.exception))
+
+    def test_a_missing_carry_rate_is_named(self):
+        quotes = dict(Config().fx_quotes)
+        quotes["CHF"] = {t: FXTenorQuote(bid=0.88, ask=0.89)
+                         for t in Config().tenors}
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("CHF", 2, -100_000)
+        with self.assertRaises(ValueError) as ctx:
+            CashOptimizer(Config(fx_quotes=quotes), cf,
+                          opening_balances={"GBP": 5_000_000})
+        self.assertIn("credit_carry_pa", str(ctx.exception))
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""
@@ -659,13 +778,6 @@ class TestKnownOpenFindings(CostAssertions):
                             phasing=[plan])
         with self.assertRaises(TypeError):
             opt.solve()
-
-    def test_f17_nan_still_silently_drops_a_currency(self):
-        cfg = Config()
-        opt = CashOptimizer(cfg, CashFlowSet(horizon_days=5),
-                            opening_balances={"GBP": 5e6, "USD": float("nan")})
-        self.assertEqual(opt.active_foreign_ccys, [],
-                         "F17 fixed? update this test")
 
 
 if __name__ == "__main__":

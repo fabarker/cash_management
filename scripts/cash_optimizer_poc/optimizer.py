@@ -7,6 +7,7 @@ Contains only the ``CashOptimizer`` class.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 
 import pulp
@@ -95,7 +96,10 @@ class CashOptimizer:
         self.cf = cashflows
         self.opening = opening_balances or {}
         self.phasing = {p.currency: p for p in (phasing or [])}
-        self.foreign_ccys = [c for c in cfg.currencies if c != cfg.base_ccy]
+        self._check_opening_balances()
+        self.currencies = self._resolve_currencies()
+        self.foreign_ccys = [c for c in self.currencies if c != cfg.base_ccy]
+        self._check_market_data()
 
         self.active_foreign_ccys = self._compute_active_foreign_ccys()
         self.balance_bounds = self._compute_balance_bounds()
@@ -104,6 +108,103 @@ class CashOptimizer:
         self._prob: Optional[pulp.LpProblem] = None
         self._vars: dict = {}
         self._solved: bool = False
+
+    # ── Input validation and currency discovery ──
+
+    def _check_opening_balances(self) -> None:
+        """Reject a balance that is not a finite number.
+
+        NaN is the dangerous case.  Every comparison against it is false, so
+        ``abs(balance) > 1e-9`` answers "nothing here" for a figure that
+        actually means "I could not read this" — and the currency is dropped
+        from the model without a word.  A feed that returns NaN for missing
+        data would silently become a feed that reports no exposure.
+        """
+        for ccy, amount in self.opening.items():
+            if not math.isfinite(amount):
+                raise ValueError(
+                    f"Opening balance for {ccy} is {amount!r}, which is not a "
+                    f"finite number. A missing or unreadable balance must not "
+                    f"be passed in as NaN: it would be read as an empty "
+                    f"account and {ccy} would be dropped from the model with "
+                    f"no warning. Supply the real balance, or omit {ccy}."
+                )
+
+    def _resolve_currencies(self) -> List[str]:
+        """The currencies actually in play, discovered rather than declared.
+
+        ``Config.currencies`` is a statement of intent — the currencies you
+        want modelled even if nothing happens in them.  It is not a reliable
+        record of what turned up in the data: a projection feed can perfectly
+        well deliver an obligation in a currency nobody pre-declared, and
+        before this that obligation was invisible everywhere.
+
+        The universe is therefore the declared list plus anything appearing in
+        the opening balances or the cash flows.  The caller's ``Config`` is
+        left untouched; what a discovered currency still has to bring with it
+        is its market data, which ``_check_market_data`` insists on.
+        """
+        universe = list(self.cfg.currencies)
+        provenance: Dict[str, str] = {}
+
+        def note(ccy: str, where: str) -> None:
+            if ccy not in universe:
+                universe.append(ccy)
+                provenance.setdefault(ccy, where)
+
+        for ccy in self.opening:
+            note(ccy, "an opening balance")
+        for ccy, day, _ in self.cf.all_entries():
+            note(ccy, f"a cash flow on day {day}")
+
+        if self.cfg.base_ccy not in universe:
+            universe.append(self.cfg.base_ccy)
+
+        self._discovered = provenance
+        if provenance:
+            log.info(
+                "Currencies found in the data but not declared in "
+                "Config.currencies: %s",
+                ", ".join(f"{c} (from {w})" for c, w in provenance.items()),
+            )
+        return universe
+
+    def _check_market_data(self) -> None:
+        """Every foreign currency in play needs quotes and carry rates.
+
+        This is where flexibility stops.  Which currencies exist can be read
+        off the data; an exchange rate cannot be inferred from anything, and a
+        model that silently invented one would be worse than a model that
+        refuses to run.
+        """
+        problems: List[str] = []
+        for ccy in self.foreign_ccys:
+            missing = []
+            quotes = self.cfg.fx_quotes.get(ccy)
+            if not quotes:
+                missing.append("fx_quotes")
+            else:
+                absent = sorted(set(self.cfg.tenors) - set(quotes))
+                if absent:
+                    missing.append(f"fx_quotes for tenor(s) {absent}")
+            if ccy not in self.cfg.credit_carry_pa:
+                missing.append("credit_carry_pa")
+            if ccy not in self.cfg.debit_carry_pa:
+                missing.append("debit_carry_pa")
+            if missing:
+                origin = self._discovered.get(ccy)
+                where = (f" — it arrived via {origin}, and was not declared in "
+                         f"Config.currencies" if origin else "")
+                problems.append(f"  {ccy}: missing {', '.join(missing)}{where}")
+
+        if problems:
+            raise ValueError(
+                "Market data is missing for currencies the model has to price:"
+                "\n" + "\n".join(problems) + "\n"
+                "A currency can be discovered from the cash flows, but its "
+                "rates cannot be. Supply fx_quotes and carry rates for each of "
+                "the above, or remove the exposure."
+            )
 
     # ── Balance ceiling ────────────────────
 
