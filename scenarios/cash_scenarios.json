@@ -1857,6 +1857,401 @@
       "min_trade": 0.0,
       "max_trade": 500000000,
       "cost_reasoning": "Both payments are still made, and sterling carries the deficit: 9.7m overdrawn balance-days at 1.64bps/day, about 1,590. That the plan looks affordable in commission terms is beside the point \u2014 the terminal base equivalent is \u22123.2m, and that is the real answer."
+    },
+    {
+      "id": "S21",
+      "name": "Currency the config never declared",
+      "narrative": "A Swiss payable turns up in the projections for a currency nobody put in the config. The universe has to come off the data, not the declaration.",
+      "expectation": "Both legs funded, with CHF appearing in the ladder and the plan despite being absent from `currencies`. If the franc is missing from the output, discovery has failed silently -- which is the failure this exists to catch.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360,
+        "CHF": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75,
+        "CHF": 0.05
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25,
+        "CHF": 2.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        },
+        "CHF": {
+          "T0": {
+            "bid": 0.8975189963,
+            "ask": 0.897967868
+          },
+          "T1": {
+            "bid": 0.8976111211,
+            "ask": 0.8980600389
+          },
+          "T2": {
+            "bid": 0.8977032446,
+            "ask": 0.8981522085
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 5000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -600000.0
+        },
+        {
+          "ccy": "CHF",
+          "day": 4,
+          "amount": -450000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000,
+      "undeclared_currencies": [
+        "CHF"
+      ],
+      "cost_reasoning": "Nothing exotic once the franc is visible: two independent payables, each funded inside its own settlement window at 20bps and the half-spread. The cost is only interesting by comparison -- if discovery failed, the franc leg would cost nothing at all, and a suspiciously cheap plan would be the only symptom."
+    },
+    {
+      "id": "S22",
+      "name": "Balance whipsaws through zero",
+      "narrative": "One currency in and out of overdraft four times in six days. The position changes sign repeatedly rather than drifting one way.",
+      "expectation": "Each crossing is priced on the right side: credit carry at the bid on positive days, debit carry at the ask on negative ones, never both on the same day.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 4000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 1,
+          "amount": -800000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 2,
+          "amount": 1500000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -900000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 5,
+          "amount": 400000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000,
+      "cost_reasoning": "Four sign changes, and the rate flips with each one. On credit days the dollar earns 1.0417bps against sterling's 0.9589, a small benefit; on overdraft days it costs 1.7361bps at the ask, nearly twice as much. That asymmetry is why the plan funds the overdrafts and leaves the credits alone rather than smoothing the whole path."
+    },
+    {
+      "id": "S23",
+      "name": "Need exactly on a commission boundary",
+      "narrative": "The payable is 500,000 dollars against a schedule whose first band ends at exactly 500,000. Not a penny either side.",
+      "expectation": "The first band fills exactly and the second takes nothing: 20bps on 500,000 and no 10bps line at all. A second band that picks up a sliver means the tier-fill binaries are off by a rounding error.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 3000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 4,
+          "amount": -500000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000,
+      "cost_reasoning": "500,000 at 20bps is 1,000 dollars of commission, about 790 base, and the second band never opens. Dealing one dollar more would cost 10bps on that dollar; dealing one less leaves the payment short. The schedule is flat either side of here, so the tenor and the spread decide the rest."
+    },
+    {
+      "id": "S24",
+      "name": "Gross flows that net away on the day",
+      "narrative": "A large dollar receipt and a large dollar payment land together, leaving a small residue. The gross figures dwarf the net.",
+      "expectation": "Nothing is dealt against the 1.5m gross. The day nets to +50,000 and that residue is swept. Any trade sized near the gross means the model is funding a flow that never leaves the account.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "standard",
+      "commission_tiers": [
+        {
+          "threshold": 500000,
+          "rate_bps": 20.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 10.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 2500000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": 1500000.0
+        },
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -1450000.0
+        }
+      ],
+      "min_trade": 0.0,
+      "max_trade": 500000000,
+      "cost_reasoning": "Funding the 1.5m gross would cost roughly 1,600 in commission plus spread, against a genuine need of 50,000. The receipt and the payment settle on the same day, so the account never actually holds the gross amount and there is nothing to fund. The whole cost is sweeping the 50,000 residue."
+    },
+    {
+      "id": "S25",
+      "name": "Need exactly equal to the minimum ticket",
+      "narrative": "The payable is 100,000 dollars and the desk will not quote below the equivalent of 100,000 dollars. Feasible by exactly nothing.\nThe minimum is set in BASE currency and converted per currency, so the figure below is the sterling worth of 100,000 dollars, not 100,000 sterling. Setting it to a round base amount is the mistake this scenario was written to make and then catch.",
+      "expectation": "One ticket of exactly 100,000 dollars, and Optimal. This is S16 from the other side of the same boundary: there the need sat below the minimum and no plan existed.",
+      "base_ccy": "GBP",
+      "currencies": [
+        "GBP",
+        "USD"
+      ],
+      "horizon_days": 6,
+      "tenors": {
+        "T0": 0,
+        "T1": 1,
+        "T2": 2
+      },
+      "spread_profile": "normal",
+      "commission_profile": "institutional",
+      "commission_tiers": [
+        {
+          "threshold": 1000000,
+          "rate_bps": 5.0
+        },
+        {
+          "threshold": 500000000,
+          "rate_bps": 2.0
+        }
+      ],
+      "day_count_basis": {
+        "GBP": 365,
+        "USD": 360
+      },
+      "credit_carry_pa": {
+        "GBP": 3.5,
+        "USD": 3.75
+      },
+      "debit_carry_pa": {
+        "GBP": 6.0,
+        "USD": 6.25
+      },
+      "fx_quotes": {
+        "USD": {
+          "T0": {
+            "bid": 0.7898167167,
+            "ask": 0.7902117238
+          },
+          "T1": {
+            "bid": 0.7898100305,
+            "ask": 0.7902050343
+          },
+          "T2": {
+            "bid": 0.7898033459,
+            "ask": 0.7901983463
+          }
+        }
+      },
+      "opening_balances": {
+        "GBP": 2000000.0
+      },
+      "cash_flows": [
+        {
+          "ccy": "USD",
+          "day": 3,
+          "amount": -100000.0
+        }
+      ],
+      "min_trade": 79000.084608,
+      "max_trade": 500000000,
+      "cost_reasoning": "The ticket is legal by exactly nothing, so there is one plan and no choice to price. Institutional commission at 5bps on 100,000 dollars is 50 dollars, about 40 base, plus the half-spread. Compare S16, where the same boundary sits the other way and the answer is that no plan exists. The two together bracket a threshold that is quoted in base and applied in foreign, which is the easiest thing here to get a currency out on."
     }
   ]
 }

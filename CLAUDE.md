@@ -71,7 +71,7 @@ which is **entirely commented out** — running the module directly raises `Attr
 
 ## Scenario library
 
-`scenarios/cash_scenarios.json` holds twenty economically-shaped scenarios — varying
+`scenarios/cash_scenarios.json` holds twenty-five economically-shaped scenarios — varying
 base currency (GBP/USD/EUR/JPY/CHF), which foreign currencies are in play, carry rates,
 dealing spreads and commission schedules. Each carries a `narrative` and an
 `expectation` describing what a correct plan looks like.
@@ -96,10 +96,18 @@ terms of the actual figures. Commission dominates almost every scenario here (20
 the first 500k of a 0.79 rate is ~790 base), which is worth knowing before reading any
 of them.
 
-Three are deliberately not plain successes: **S16** is `Infeasible` because the need is
-below the minimum ticket, **S20** returns a plan with `insufficient_funds` set, and
-**S07** is the carry test — toggling `holding_ceiling` off makes it *cheaper*, and that
-fall is the speculation being taken.
+Five are deliberately not plain successes: **S16** is `Infeasible` because the need is
+below the minimum ticket and **S25** sits exactly on it from the other side; **S20**
+returns a plan with `insufficient_funds` set; **S07** is the carry test — toggling
+`holding_ceiling` off makes it *cheaper*, and that fall is the speculation being taken;
+**S21** puts a currency in the cash flows that `Config.currencies` never declares, so
+discovery has to find it.
+
+S21–S25 are edge cases rather than shaped books: currency discovery, a balance crossing
+zero four times, a need landing exactly on a commission tier boundary, gross flows that
+net away on the day they land, and a need exactly equal to the minimum ticket. That last
+one is worth reading before setting `min_trade`: the minimum is a **base-currency**
+amount converted per currency, so 100,000 base is 126,582 dollars, not 100,000.
 
 The web page steps through the library in order: the load button advances one place and
 wraps at the end, and typing an id (`S07`) or a position (`7`) jumps there instead.

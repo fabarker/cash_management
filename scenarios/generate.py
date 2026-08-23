@@ -70,8 +70,16 @@ def quotes(base: str, foreign: list, spread: str) -> dict:
 
 def scenario(sid, name, narrative, base, foreign, horizon, opening, flows,
              *, spread="normal", commission="standard", expectation="",
-             min_trade=0.0, extra=None):
+             min_trade=0.0, undeclared=(), extra=None):
+    """Build one scenario.
+
+    ``undeclared`` names currencies that appear in the cash flows and carry
+    full market data, but are deliberately left out of ``currencies``.  The
+    model discovers its universe from the data rather than the config, and
+    nothing else in the library exercises that path.
+    """
     ccys = [base] + [c for c in foreign if c != base]
+    priced = ccys + [c for c in undeclared if c not in ccys]
     s = {
         "id": sid,
         "name": name,
@@ -85,15 +93,17 @@ def scenario(sid, name, narrative, base, foreign, horizon, opening, flows,
         "commission_profile": commission,
         "commission_tiers": [{"threshold": t, "rate_bps": r}
                              for t, r in COMMISSION[commission]],
-        "day_count_basis": {c: BASIS[c] for c in ccys},
-        "credit_carry_pa": {c: CREDIT_PA[c] for c in ccys},
-        "debit_carry_pa": {c: DEBIT_PA[c] for c in ccys},
-        "fx_quotes": quotes(base, [c for c in ccys if c != base], spread),
+        "day_count_basis": {c: BASIS[c] for c in priced},
+        "credit_carry_pa": {c: CREDIT_PA[c] for c in priced},
+        "debit_carry_pa": {c: DEBIT_PA[c] for c in priced},
+        "fx_quotes": quotes(base, [c for c in priced if c != base], spread),
         "opening_balances": opening,
         "cash_flows": [{"ccy": c, "day": d, "amount": a} for c, d, a in flows],
         "min_trade": min_trade,
         "max_trade": COMMISSION[commission][-1][0],
     }
+    if undeclared:
+        s["undeclared_currencies"] = list(undeclared)
     if extra:
         s.update(extra)
     return s
@@ -323,6 +333,73 @@ SCENARIOS = [
                     "and a negative terminal base equivalent showing how much "
                     "is short and when.",
     ),
+    scenario(
+        "S21", "Currency the config never declared",
+        "A Swiss payable turns up in the projections for a currency nobody "
+        "put in the config. The universe has to come off the data, not the "
+        "declaration.",
+        "GBP", ["USD"], 6,
+        {"GBP": 5_000_000.0},
+        [("USD", 3, -600_000.0), ("CHF", 4, -450_000.0)],
+        undeclared=["CHF"],
+        expectation="Both legs funded, with CHF appearing in the ladder and "
+                    "the plan despite being absent from `currencies`. If the "
+                    "franc is missing from the output, discovery has failed "
+                    "silently -- which is the failure this exists to catch.",
+    ),
+    scenario(
+        "S22", "Balance whipsaws through zero",
+        "One currency in and out of overdraft four times in six days. The "
+        "position changes sign repeatedly rather than drifting one way.",
+        "GBP", ["USD"], 6,
+        {"GBP": 4_000_000.0},
+        [("USD", 1, -800_000.0), ("USD", 2, 1_500_000.0),
+         ("USD", 3, -900_000.0), ("USD", 5, 400_000.0)],
+        expectation="Each crossing is priced on the right side: credit carry "
+                    "at the bid on positive days, debit carry at the ask on "
+                    "negative ones, never both on the same day.",
+    ),
+    scenario(
+        "S23", "Need exactly on a commission boundary",
+        "The payable is 500,000 dollars against a schedule whose first band "
+        "ends at exactly 500,000. Not a penny either side.",
+        "GBP", ["USD"], 6,
+        {"GBP": 3_000_000.0},
+        [("USD", 4, -500_000.0)],
+        expectation="The first band fills exactly and the second takes "
+                    "nothing: 20bps on 500,000 and no 10bps line at all. A "
+                    "second band that picks up a sliver means the tier-fill "
+                    "binaries are off by a rounding error.",
+    ),
+    scenario(
+        "S24", "Gross flows that net away on the day",
+        "A large dollar receipt and a large dollar payment land together, "
+        "leaving a small residue. The gross figures dwarf the net.",
+        "GBP", ["USD"], 6,
+        {"GBP": 2_500_000.0},
+        [("USD", 3, 1_500_000.0), ("USD", 3, -1_450_000.0)],
+        expectation="Nothing is dealt against the 1.5m gross. The day nets to "
+                    "+50,000 and that residue is swept. Any trade sized near "
+                    "the gross means the model is funding a flow that never "
+                    "leaves the account.",
+    ),
+    scenario(
+        "S25", "Need exactly equal to the minimum ticket",
+        "The payable is 100,000 dollars and the desk will not quote below "
+        "the equivalent of 100,000 dollars. Feasible by exactly nothing.\n"
+        "The minimum is set in BASE currency and converted per currency, so "
+        "the figure below is the sterling worth of 100,000 dollars, not "
+        "100,000 sterling. Setting it to a round base amount is the mistake "
+        "this scenario was written to make and then catch.",
+        "GBP", ["USD"], 6,
+        {"GBP": 2_000_000.0},
+        [("USD", 3, -100_000.0)],
+        min_trade=round(100_000.0 * forward("GBP", "USD", TENORS["T2"]), 6),
+        commission="institutional",
+        expectation="One ticket of exactly 100,000 dollars, and Optimal. This "
+                    "is S16 from the other side of the same boundary: there "
+                    "the need sat below the minimum and no plan existed.",
+    ),
 ]
 
 
@@ -429,6 +506,38 @@ COST_REASONING = {
         "500,000 and running a 200,000 overdraft for two days costs "
         "1.74bps/day on the shortfall instead — which is why the trade is "
         "500,000 and not 700,000.",
+    "S21":
+        "Nothing exotic once the franc is visible: two independent payables, "
+        "each funded inside its own settlement window at 20bps and the "
+        "half-spread. The cost is only interesting by comparison -- if "
+        "discovery failed, the franc leg would cost nothing at all, and a "
+        "suspiciously cheap plan would be the only symptom.",
+    "S22":
+        "Four sign changes, and the rate flips with each one. On credit days "
+        "the dollar earns 1.0417bps against sterling's 0.9589, a small "
+        "benefit; on overdraft days it costs 1.7361bps at the ask, nearly "
+        "twice as much. That asymmetry is why the plan funds the overdrafts "
+        "and leaves the credits alone rather than smoothing the whole path.",
+    "S23":
+        "500,000 at 20bps is 1,000 dollars of commission, about 790 base, and "
+        "the second band never opens. Dealing one dollar more would cost "
+        "10bps on that dollar; dealing one less leaves the payment short. The "
+        "schedule is flat either side of here, so the tenor and the spread "
+        "decide the rest.",
+    "S24":
+        "Funding the 1.5m gross would cost roughly 1,600 in commission plus "
+        "spread, against a genuine need of 50,000. The receipt and the "
+        "payment settle on the same day, so the account never actually holds "
+        "the gross amount and there is nothing to fund. The whole cost is "
+        "sweeping the 50,000 residue.",
+    "S25":
+        "The ticket is legal by exactly nothing, so there is one plan and no "
+        "choice to price. Institutional commission at 5bps on 100,000 dollars "
+        "is 50 dollars, about 40 base, plus the half-spread. Compare S16, "
+        "where the same boundary sits the other way and the answer is that no "
+        "plan exists. The two together bracket a threshold that is quoted in "
+        "base and applied in foreign, which is the easiest thing here to get "
+        "a currency out on.",
     "S20":
         "Both payments are still made, and sterling carries the deficit: "
         "9.7m overdrawn balance-days at 1.64bps/day, about 1,590. That the "
