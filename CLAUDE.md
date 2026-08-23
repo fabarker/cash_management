@@ -91,6 +91,11 @@ for sc in load_library():
     build_cash_manager(sc).solve_optimal().print_summary()
 ```
 
+Each also carries `cost_reasoning` — why the expected plan is the *cheapest* one, in
+terms of the actual figures. Commission dominates almost every scenario here (20bps on
+the first 500k of a 0.79 rate is ~790 base), which is worth knowing before reading any
+of them.
+
 Three are deliberately not plain successes: **S16** is `Infeasible` because the need is
 below the minimum ticket, **S20** returns a plan with `insufficient_funds` set, and
 **S07** is the carry test — toggling `holding_ceiling` off makes it *cheaper*, and that
@@ -110,6 +115,15 @@ Strict one-way layering; each module imports only from the ones above it.
 | `optimizer.py` | `CashOptimizer` — builds and solves the LP/MIP, extracts a `Result` |
 | `result.py` | `Result` — formatting, cost attribution, after-cost ladder (display only) |
 | `cash_manager.py` | `CashManager` — stateful workbench wrapping the optimizer; manual-trade evaluation and comparison |
+
+### The cost model is duplicated in four places — and `workings.py` is a fifth
+
+`workings.py` derives each line of the breakdown for display (which commission tier,
+how many balance-days at what rate, which side of the spread). It is a fifth copy of
+the same arithmetic, so it does not get to be trusted: it recomputes every component
+independently and then checks itself against `CashManager._compute_cost`. Where the two
+disagree, the line reports the mismatch and shows the model's figure rather than its
+own. A plausible-looking formula that is quietly wrong is worse than no formula.
 
 ### The cost model is duplicated in four places
 

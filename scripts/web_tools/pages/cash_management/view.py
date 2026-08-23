@@ -331,11 +331,12 @@ def build_view() -> CashManagementRefs:
                 .style('height: 40px;')
             )
 
-            # Describes the scenario currently loaded; empty until one is.
-            scenario_caption = (
-                ui.label('')
-                .style('font-size: 13px; color: #495057; max-width: 640px;')
-            )
+        # Describes the scenario currently loaded; empty until one is.
+        scenario_caption = (
+            ui.html('', sanitize=False)
+            .style('font-size: 13px; color: #495057; max-width: 900px; '
+                   'margin-bottom: 16px;')
+        )
 
         # ── Error label (hidden by default) ────────────────────
         error_label = (

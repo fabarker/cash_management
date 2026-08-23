@@ -17,7 +17,7 @@ class CashManagementRefs:
 
     # ── Search bar ─────────────────────────────────────────────
     group_number_input: ui.input
-    scenario_caption: ui.label
+    scenario_caption: ui.html
     load_btn: ui.button
 
     # ── Loading / progress dialog ──────────────────────────────

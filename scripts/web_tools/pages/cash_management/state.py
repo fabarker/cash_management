@@ -310,6 +310,7 @@ class CashManagementState:
             ),
             'scenario_narrative': (self.scenario or {}).get('narrative', ''),
             'scenario_expectation': (self.scenario or {}).get('expectation', ''),
+            'scenario_cost_reasoning': (self.scenario or {}).get('cost_reasoning', ''),
             'horizon': cfg.horizon_days,
             'currencies': cfg.currencies,
             'fx_quotes': cfg.fx_quotes,       # {ccy: {tenor: FXTenorQuote}}
@@ -395,6 +396,30 @@ class CashManagementState:
             'terminal_unwind': cb.terminal_unwind_cost,
             'total': cb.total_cost,
         }
+
+    def get_cost_components(self) -> List[Dict[str, Any]]:
+        """Return each cost line with the arithmetic that produced it.
+
+        The workings come from ``cash_optimizer_poc.workings``, which derives
+        them independently and then checks itself against the cost model.  A
+        line whose ``reconciles`` flag is False is telling you the derivation
+        disagrees with the model -- believe the value, not the formula, and
+        treat it as a defect.
+        """
+        from scripts.cash_optimizer_poc.workings import cost_workings
+
+        if self.cash_manager is None or self.optimal_result is None:
+            return []
+        return [
+            {
+                'key': c.key,
+                'label': c.label,
+                'value': c.value,
+                'workings': c.workings,
+                'reconciles': c.reconciles,
+            }
+            for c in cost_workings(self.cash_manager, self.optimal_result)
+        ]
 
     # ── Private helpers ───────────────────────────────────────
 

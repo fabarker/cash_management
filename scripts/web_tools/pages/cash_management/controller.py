@@ -6,6 +6,7 @@ Handles event wiring, async workflows, and all UI updates.
 from __future__ import annotations
 
 import logging
+from html import escape
 from typing import Any, Dict, List
 
 from nicegui import ui, run
@@ -101,13 +102,8 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.base_ccy_label.set_text(info['base_ccy'])
         self.refs.funding_id_label.set_text(info.get('funding_id', '—'))
 
-        # Narrative and what to look for, so the scenario explains itself.
-        narrative = info.get('scenario_narrative', '')
-        expectation = info.get('scenario_expectation', '')
-        caption = narrative
-        if expectation:
-            caption = f'{narrative}  ·  Expect: {expectation}' if narrative else expectation
-        self.refs.scenario_caption.set_text(caption)
+        # Narrative, what to expect, and why that is the cheapest answer.
+        self.refs.scenario_caption.set_content(self._scenario_caption_html(info))
         self.refs.horizon_label.set_text(f'{info["horizon"]} days')
         self.refs.currencies_label.set_text(', '.join(info['currencies']))
 
@@ -134,6 +130,37 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.constraints_section.classes(remove='hidden')
 
         self.refs.info_panel.classes(remove='hidden')
+
+    @staticmethod
+    def _scenario_caption_html(info: Dict[str, Any]) -> str:
+        """Narrative, expected outcome, and the cost logic behind it.
+
+        The expectation says what a correct plan looks like; the reasoning
+        says why that plan is the cheapest one, which is the part that makes
+        the scenario worth running rather than just reading.
+        """
+        blocks = [
+            (None, info.get('scenario_narrative', '')),
+            ('Expect', info.get('scenario_expectation', '')),
+            ('Why, on cost', info.get('scenario_cost_reasoning', '')),
+        ]
+        parts = []
+        for heading, body in blocks:
+            if not body:
+                continue
+            text = escape(body)
+            if heading is None:
+                parts.append(
+                    f'<div style="margin-bottom:6px; color:#212529;">{text}</div>'
+                )
+            else:
+                colour = '#1F3864' if heading == 'Expect' else '#0b6b5e'
+                parts.append(
+                    f'<div style="margin-bottom:4px;">'
+                    f'<span style="color:{colour}; font-weight:700;">'
+                    f'{heading}:</span> {text}</div>'
+                )
+        return ''.join(parts)
 
     def _populate_rates_table(self, info: Dict[str, Any]) -> None:
         """Render FX quotes, credit and debit rates as styled lists.
@@ -537,63 +564,83 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             ui.html(html, sanitize=False)
 
     def _render_cost_breakdown(self, costs: Dict[str, float]) -> None:
-        """Populate the cost breakdown container as a single HTML block."""
+        """Populate the cost breakdown, each line with its own arithmetic.
+
+        The figure on its own says how much; the workings beside it say
+        where it came from -- which tier of the commission schedule, how
+        many balance-days at what rate, which side of the spread.  Those
+        derivations are checked against the cost model before they are
+        rendered, and a line that failed the check says so instead.
+        """
         self.refs.cost_breakdown_container.clear()
 
-        if not costs:
+        components = self.state.get_cost_components()
+        if not components and not costs:
             with self.refs.cost_breakdown_container:
                 ui.html('<div class="text-base text-gray-500">No cost data available.</div>',
                         sanitize=False)
             return
 
-        components = [
-            ('Credit carry (differential)', costs.get('credit_carry', 0.0)),
-            ('Debit carry (overdraft)', costs.get('debit_carry', 0.0)),
-            ('FX exposure penalty', costs.get('fx_exposure', 0.0)),
-            ('Commission', costs.get('commission', 0.0)),
-            ('FX spread paid', costs.get('spread', 0.0)),
-            ('Terminal unwind', costs.get('terminal_unwind', 0.0)),
-        ]
+        def money(value: float) -> str:
+            if value < -0.00005:
+                return 'color: #2e7d32;'
+            if value > 0.00005:
+                return 'color: #c62828;'
+            return 'color: #495057;'
 
         rows_html = ''
-        for label, value in components:
-            if value < -0.00005:
-                css = 'color: #2e7d32;'
-            elif value > 0.00005:
-                css = 'color: #c62828;'
+        running = 0.0
+        for comp in components:
+            value = comp['value']
+            running += value
+            if comp['reconciles']:
+                workings = escape(comp['workings'])
+                tone = '#6c757d'
             else:
-                css = 'color: #495057;'
+                workings = escape(comp['workings'])
+                tone = '#b26a00'
             rows_html += (
-                f'<div class="cost-row">'
-                f'<div style="color: #495057; flex: 1; min-width: 250px;">{label}</div>'
-                f'<div style="font-variant-numeric: tabular-nums; min-width: 120px; '
-                f'text-align: right; {css}">{value:,.4f}</div>'
+                f'<div class="cost-row" style="align-items: baseline;">'
+                f'<div style="color: #495057; flex: 0 0 220px;">'
+                f'{escape(comp["label"])}</div>'
+                f'<div style="font-variant-numeric: tabular-nums; '
+                f'flex: 0 0 120px; text-align: right; {money(value)}">'
+                f'{value:,.4f}</div>'
+                f'<div style="flex: 1 1 auto; padding-left: 20px; '
+                f'font-size: 11.5px; font-family: ui-monospace, Menlo, '
+                f'monospace; color: {tone}; word-break: break-word;">'
+                f'{workings}</div>'
                 f'</div>'
             )
 
-        total = costs.get('total', 0.0)
+        total = costs.get('total', running)
 
-        # The rows above must reconcile to the total.  They have not always:
+        # The lines above must reconcile to the total.  They have not always:
         # two components were missing and the table silently understated
         # every plan by the spread.  Say so rather than print a sum that
         # does not add up.
-        residual = total - sum(v for _, v in components)
+        residual = total - running
         if abs(residual) > 0.0005:
             rows_html += (
-                f'<div class="cost-row">'
-                f'<div style="color: #b26a00; flex: 1; min-width: 250px;">'
-                f'Unattributed &mdash; breakdown does not reconcile</div>'
-                f'<div style="font-variant-numeric: tabular-nums; min-width: 120px; '
-                f'text-align: right; color: #b26a00;">{residual:,.4f}</div>'
+                f'<div class="cost-row" style="align-items: baseline;">'
+                f'<div style="color: #b26a00; flex: 0 0 220px;">Unattributed</div>'
+                f'<div style="font-variant-numeric: tabular-nums; '
+                f'flex: 0 0 120px; text-align: right; color: #b26a00;">'
+                f'{residual:,.4f}</div>'
+                f'<div style="flex: 1 1 auto; padding-left: 20px; '
+                f'font-size: 11.5px; color: #b26a00;">'
+                f'breakdown does not reconcile to the total</div>'
                 f'</div>'
             )
 
         total_color = '#2e7d32' if total < -0.005 else '#c62828' if total > 0.005 else '#1F3864'
         rows_html += (
-            f'<div class="cost-row total">'
-            f'<div style="color: #1F3864; flex: 1; min-width: 250px;">TOTAL COST</div>'
-            f'<div style="font-variant-numeric: tabular-nums; min-width: 120px; '
-            f'text-align: right; color: {total_color};">{total:,.4f}</div>'
+            f'<div class="cost-row total" style="align-items: baseline;">'
+            f'<div style="color: #1F3864; flex: 0 0 220px;">TOTAL COST</div>'
+            f'<div style="font-variant-numeric: tabular-nums; '
+            f'flex: 0 0 120px; text-align: right; color: {total_color};">'
+            f'{total:,.4f}</div>'
+            f'<div style="flex: 1 1 auto;"></div>'
             f'</div>'
         )
 
