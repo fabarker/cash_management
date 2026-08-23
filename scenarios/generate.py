@@ -104,7 +104,7 @@ SCENARIOS = [
         "S01", "Single dollar payment",
         "A sterling book with one dollar invoice falling due mid-week and ample "
         "cash to meet it. The plainest case there is.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 4_000_000.0, "USD": 0.0},
         [("USD", 4, -750_000.0)],
         expectation="One USD buy landing on day 4. Nothing held before day 2, "
@@ -114,9 +114,9 @@ SCENARIOS = [
         "S02", "Staggered payables",
         "Three foreign invoices on different dates. The optimiser has to fund "
         "each one separately rather than pre-buying a single block.",
-        "USD", ["GBP", "EUR", "CHF"], 5,
+        "USD", ["GBP", "EUR", "CHF"], 6,
         {"USD": 8_000_000.0},
-        [("GBP", 2, -700_000.0), ("EUR", 3, -1_100_000.0), ("CHF", 4, -400_000.0)],
+        [("GBP", 2, -700_000.0), ("EUR", 4, -1_100_000.0), ("CHF", 5, -400_000.0)],
         commission="institutional", spread="tight",
         expectation="Three buys, each inside its own settlement window. "
                     "Institutional commission makes the tenor choice cheap.",
@@ -125,7 +125,7 @@ SCENARIOS = [
         "S03", "Opening dollar overdraft",
         "The account is already short dollars at the start of the week and "
         "nothing else is scheduled in that currency. It has to be cured.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 3_000_000.0, "USD": -620_000.0},
         [],
         expectation="A USD buy clearing the overdraft inside the settlement "
@@ -135,9 +135,9 @@ SCENARIOS = [
         "S04", "Receipt funds a later payment",
         "A dollar receipt lands on Tuesday and a dollar payment falls due on "
         "Friday. The receipt should simply be kept to meet it.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 2_000_000.0},
-        [("USD", 1, 1_400_000.0), ("USD", 4, -950_000.0)],
+        [("USD", 1, 1_400_000.0), ("USD", 5, -950_000.0)],
         expectation="No round trip. The earmarked 950k is held; the 450k "
                     "surplus is swept back to sterling.",
     ),
@@ -145,9 +145,9 @@ SCENARIOS = [
         "S05", "Bridge across a timing gap",
         "The euro payment lands three days before the euro receipt that was "
         "meant to cover it. A genuine funding gap, not a shortfall.",
-        "GBP", ["EUR"], 5,
+        "GBP", ["EUR"], 6,
         {"GBP": 3_500_000.0},
-        [("EUR", 1, -1_600_000.0), ("EUR", 4, 1_750_000.0)],
+        [("EUR", 2, -1_600_000.0), ("EUR", 5, 1_750_000.0)],
         expectation="Either a euro purchase for day 2 or a priced overdraft "
                     "across the gap, whichever the commission makes cheaper.",
     ),
@@ -155,9 +155,9 @@ SCENARIOS = [
         "S06", "Thin base balance",
         "Payables are covered, but only just. Very little sterling headroom, "
         "so the overdraft rate on the base account starts to matter.",
-        "EUR", ["USD", "CHF"], 5,
+        "EUR", ["USD", "CHF"], 6,
         {"EUR": 210_000.0, "USD": 0.0, "CHF": 240_000.0},
-        [("USD", 3, -280_000.0), ("CHF", 4, -160_000.0)],
+        [("USD", 3, -280_000.0), ("CHF", 5, -160_000.0)],
         commission="three_tier",
         expectation="The Swiss holding is used before anything is bought. "
                     "Watch the base balance for a shallow overdraft.",
@@ -166,9 +166,9 @@ SCENARIOS = [
         "S07", "Dollar carry temptation",
         "The dollar is paying well above sterling and the account has a large "
         "unearmarked dollar credit. The obligation is trivially small.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 5_000_000.0, "USD": 2_500_000.0},
-        [("USD", 4, -50_000.0)],
+        [("USD", 5, -50_000.0)],
         spread="tight", commission="institutional",
         extra={"credit_carry_pa_override": {"USD": 6.40},
                "note": "A dollar rate above sterling is an ordinary enough "
@@ -181,7 +181,7 @@ SCENARIOS = [
         "S08", "Yen invoice, large notional",
         "A single large yen payable. Nothing unusual economically, but the "
         "notional is two orders of magnitude larger than the others.",
-        "USD", ["JPY"], 5,
+        "USD", ["JPY"], 6,
         {"USD": 5_000_000.0},
         [("JPY", 4, -420_000_000.0)],
         commission="flat",
@@ -192,7 +192,7 @@ SCENARIOS = [
         "S09", "Payment due today",
         "A dollar payment falls due on day zero, before any forward trade "
         "could settle against it.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 2_800_000.0},
         [("USD", 0, -540_000.0)],
         expectation="Same-day settlement or a short dollar overdraft on day "
@@ -202,9 +202,9 @@ SCENARIOS = [
         "S10", "Receipt on the closing day",
         "A euro receipt arrives on the last day of the ladder and must still "
         "be back in base by the close.",
-        "CHF", ["EUR"], 5,
+        "CHF", ["EUR"], 6,
         {"CHF": 1_400_000.0},
-        [("EUR", 4, 880_000.0)],
+        [("EUR", 5, 880_000.0)],
         expectation="The receipt is sold forward to settle the day it lands, "
                     "so it is never actually held.",
     ),
@@ -212,12 +212,12 @@ SCENARIOS = [
         "S11", "Full four-currency book",
         "Everything at once: payables and receivables across all four foreign "
         "currencies, with one of them opening overdrawn.",
-        "GBP", ["USD", "EUR", "JPY", "CHF"], 5,
+        "GBP", ["USD", "EUR", "JPY", "CHF"], 6,
         {"GBP": 8_000_000.0, "USD": -300_000.0, "EUR": 500_000.0,
          "JPY": 0.0, "CHF": 0.0},
         [("USD", 1, -1_200_000.0), ("EUR", 2, -800_000.0),
          ("JPY", 3, -180_000_000.0), ("CHF", 4, -650_000.0),
-         ("USD", 3, 700_000.0)],
+         ("USD", 5, 700_000.0)],
         commission="three_tier",
         expectation="The euro opening credit offsets part of the euro payable. "
                     "The dollar overdraft is cured before the dollar payable.",
@@ -226,9 +226,9 @@ SCENARIOS = [
         "S12", "Dollar-based treasury",
         "The same problem seen from a US book: sterling and euro payables "
         "against a dollar base.",
-        "USD", ["GBP", "EUR"], 5,
+        "USD", ["GBP", "EUR"], 6,
         {"USD": 5_000_000.0},
-        [("GBP", 2, -900_000.0), ("EUR", 4, -1_400_000.0)],
+        [("GBP", 3, -900_000.0), ("EUR", 5, -1_400_000.0)],
         expectation="Both foreign legs now yield less than base, so there is "
                     "no incentive to hold either a day longer than needed.",
     ),
@@ -236,9 +236,9 @@ SCENARIOS = [
         "S13", "Euro-based treasury",
         "A European book funding dollar and Swiss obligations, with the euro "
         "paying materially less than the dollar.",
-        "EUR", ["USD", "GBP", "CHF"], 5,
+        "EUR", ["USD", "GBP", "CHF"], 6,
         {"EUR": 6_000_000.0, "USD": 0.0, "CHF": 150_000.0},
-        [("USD", 1, -1_800_000.0), ("CHF", 3, -900_000.0), ("GBP", 4, -450_000.0)],
+        [("USD", 2, -1_800_000.0), ("CHF", 4, -900_000.0), ("GBP", 5, -450_000.0)],
         commission="institutional", spread="tight",
         expectation="Base yields less than the dollar here, so the limit on "
                     "speculative holdings is doing visible work.",
@@ -247,9 +247,9 @@ SCENARIOS = [
         "S14", "Yen-based treasury",
         "A Japanese book. Base notionals run to hundreds of millions and the "
         "base currency yields almost nothing.",
-        "JPY", ["USD", "EUR"], 5,
+        "JPY", ["USD", "EUR"], 6,
         {"JPY": 900_000_000.0},
-        [("USD", 2, -2_200_000.0), ("EUR", 4, -1_500_000.0)],
+        [("USD", 3, -2_200_000.0), ("EUR", 5, -1_500_000.0)],
         commission="institutional",
         expectation="Every foreign currency out-yields the yen base, which is "
                     "the strongest carry pull in the library.",
@@ -258,9 +258,9 @@ SCENARIOS = [
         "S15", "Swiss-based treasury",
         "A Swiss book with the lowest base yield of the five and a euro "
         "receivable arriving mid-week.",
-        "CHF", ["EUR", "USD"], 5,
+        "CHF", ["EUR", "USD"], 6,
         {"CHF": 3_200_000.0, "EUR": -220_000.0},
-        [("EUR", 2, 1_100_000.0), ("USD", 4, -1_300_000.0)],
+        [("EUR", 3, 1_100_000.0), ("USD", 5, -1_300_000.0)],
         commission="three_tier",
         expectation="The euro overdraft is cured, then the euro receipt covers "
                     "it and the surplus is swept.",
@@ -269,7 +269,7 @@ SCENARIOS = [
         "S16", "Need below the minimum ticket",
         "A trivial dollar payable against a dealing desk that will not quote "
         "below half a million.",
-        "GBP", ["USD"], 5,
+        "GBP", ["USD"], 6,
         {"GBP": 2_000_000.0},
         [("USD", 3, -12_000.0)],
         min_trade=500_000.0, commission="institutional",
@@ -280,7 +280,7 @@ SCENARIOS = [
         "S17", "Straddling a commission tier",
         "The dollar payable sits just above the first commission band, so the "
         "cheap tier must be filled before the expensive one is used.",
-        "EUR", ["USD"], 5,
+        "EUR", ["USD"], 6,
         {"EUR": 3_000_000.0},
         [("USD", 4, -1_150_000.0)],
         commission="retail", spread="wide",
@@ -292,7 +292,7 @@ SCENARIOS = [
         "S18", "Several currencies overdrawn",
         "Three foreign accounts start the week short and nothing arrives to "
         "help. Everything has to be funded from base.",
-        "USD", ["GBP", "EUR", "CHF"], 5,
+        "USD", ["GBP", "EUR", "CHF"], 6,
         {"USD": 6_000_000.0, "GBP": -600_000.0, "EUR": -650_000.0,
          "CHF": -300_000.0},
         [],
@@ -304,9 +304,9 @@ SCENARIOS = [
         "S19", "Alternating dollar flows",
         "Pay, receive, pay again in one currency across a single week. The "
         "deepest point of the ladder is what has to be funded, not the net.",
-        "JPY", ["USD"], 5,
+        "JPY", ["USD"], 6,
         {"JPY": 400_000_000.0},
-        [("USD", 1, -700_000.0), ("USD", 2, 1_100_000.0), ("USD", 4, -900_000.0)],
+        [("USD", 1, -700_000.0), ("USD", 3, 1_100_000.0), ("USD", 5, -900_000.0)],
         expectation="Netting the week to a single figure would understate the "
                     "day-1 gap. Two separate fundings, or one plus an "
                     "overdraft.",
@@ -315,9 +315,9 @@ SCENARIOS = [
         "S20", "Genuinely insufficient funds",
         "Obligations exceed everything the account holds, however the trades "
         "are arranged. A financing question, not a constraint conflict.",
-        "GBP", ["USD", "EUR"], 5,
+        "GBP", ["USD", "EUR"], 6,
         {"GBP": 250_000.0, "USD": 0.0, "EUR": 0.0},
-        [("USD", 2, -2_400_000.0), ("EUR", 4, -1_800_000.0)],
+        [("USD", 3, -2_400_000.0), ("EUR", 5, -1_800_000.0)],
         spread="wide",
         expectation="A plan is still returned, with INSUFFICIENT FUNDS set "
                     "and a negative terminal base equivalent showing how much "
