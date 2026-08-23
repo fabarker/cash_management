@@ -364,7 +364,7 @@ class CashManagementState:
     def get_cost_breakdown(self) -> Dict[str, float]:
         """Return cost breakdown as a dict.
 
-        Keys: credit_carry, debit_carry, fx_exposure, commission,
+        Keys: credit_carry, debit_carry, commission,
         spread, terminal_unwind, total.
 
         Uses the CashManager's _compute_cost helper for the optimizer
@@ -390,7 +390,6 @@ class CashManagementState:
         return {
             'credit_carry': cb.credit_carry_cost,
             'debit_carry': cb.debit_carry_cost,
-            'fx_exposure': cb.fx_exposure_cost,
             'commission': cb.commission_cost,
             'spread': cb.spread_cost,
             'terminal_unwind': cb.terminal_unwind_cost,

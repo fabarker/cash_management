@@ -754,7 +754,6 @@ class CashOptimizer:
         base = self.cfg.base_ccy
         base_credit_rate = self.cfg.credit_carry_bps_per_day[base]
         base_debit_rate = self.cfg.debit_carry_bps_per_day[base]
-        fx_start = self.cfg.fx_exposure_from_day
         carry_start = self.cfg.credit_carry_start_day
 
         for d in range(self.cfg.horizon_days):
@@ -781,11 +780,6 @@ class CashOptimizer:
 
                 # Debit carry: value negative balance at ask (entry rate)
                 obj += debit_rate_bps / 1e4 * spot_ask * bn
-
-                # FX exposure: value at spot mid (risk-neutral)
-                if d >= fx_start:
-                    obj += self.cfg.fx_exposure_bps_per_day / 1e4 * spot_mid * (bp + bn)
-
 
                 for tenor in self.cfg.tenors:
                     if not self._has_trade_vars(ccy, d, tenor):

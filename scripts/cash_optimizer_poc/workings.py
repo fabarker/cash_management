@@ -60,12 +60,10 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
     bal = {(b.ccy, b.day): b for b in result.balances}
     base_credit_bps = cfg.credit_carry_bps_per_day[base]
     base_debit_bps = cfg.debit_carry_bps_per_day[base]
-    fx_start = cfg.fx_exposure_from_day
     carry_start = cfg.credit_carry_start_day
 
     credit = Component("credit_carry", "Credit carry (differential)", 0.0)
     debit = Component("debit_carry", "Debit carry (overdraft)", 0.0)
-    exposure = Component("fx_exposure", "FX exposure penalty", 0.0)
     commission = Component("commission", "Commission", 0.0)
     spread = Component("spread", "FX spread paid", 0.0)
     unwind = Component("terminal_unwind", "Terminal unwind", 0.0)
@@ -98,10 +96,6 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
             bal[(ccy, d)].debit for d in range(cfg.horizon_days)
             if (ccy, d) in bal
         )
-        exposed_days = sum(
-            bal[(ccy, d)].credit + bal[(ccy, d)].debit
-            for d in range(fx_start, cfg.horizon_days) if (ccy, d) in bal
-        )
 
         if abs(credit_days) > _EPS and abs(net_bps) > 1e-9:
             amount = net_bps / 1e4 * s_bid * credit_days
@@ -118,14 +112,6 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
             debit.lines.append(
                 f"{ccy} {_fmt(debit_bps, 4)}bps/day x {_rate(s_ask)} ask x "
                 f"{_fmt(debit_days, 0)} overdrawn balance-days = {_fmt(amount)}"
-            )
-        if exposed_days > _EPS:
-            amount = cfg.fx_exposure_bps_per_day / 1e4 * s_mid * exposed_days
-            exposure.value += amount
-            exposure.lines.append(
-                f"{ccy} {_fmt(cfg.fx_exposure_bps_per_day, 2)}bps/day x "
-                f"{_rate(s_mid)} mid x {_fmt(exposed_days, 0)} balance-days "
-                f"from day {fx_start} = {_fmt(amount)}"
             )
 
     # ── Trades ────────────────────────────────────────────────
@@ -188,14 +174,13 @@ def cost_workings(manager: Any, result: Any) -> List[Component]:
                     f"= {_fmt(amount)}"
                 )
 
-    components = [credit, debit, exposure, commission, spread, unwind]
+    components = [credit, debit, commission, spread, unwind]
 
     # ── Check this module against the model it describes ──────
     truth = manager._compute_optimal_cost_breakdown(result)
     expected = {
         "credit_carry": truth.credit_carry_cost,
         "debit_carry": truth.debit_carry_cost,
-        "fx_exposure": truth.fx_exposure_cost,
         "commission": truth.commission_cost,
         "spread": truth.spread_cost,
         "terminal_unwind": truth.terminal_unwind_cost,

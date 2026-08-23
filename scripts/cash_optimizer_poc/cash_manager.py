@@ -707,7 +707,6 @@ class CashManager:
         base_label = f"{base} (Base)"
         base_credit_rate = cfg.credit_carry_bps_per_day[base]
         base_debit_rate = cfg.debit_carry_bps_per_day[base]
-        fx_start = cfg.fx_exposure_from_day
         carry_start = cfg.credit_carry_start_day
 
         # ── Base currency debit carry ──
@@ -747,12 +746,6 @@ class CashManager:
                     debit_rate_bps / 1e4 * spot_ask * bn
                 )
 
-                # FX exposure: value at spot mid (risk-neutral)
-                if d >= fx_start:
-                    cost.fx_exposure_cost += (
-                        cfg.fx_exposure_bps_per_day / 1e4
-                        * spot_mid * (bp + bn)
-                    )
 
         # ── Trade costs (commission only) ──
         # Group trades by (ccy, day, tenor) to count distinct activations
@@ -982,7 +975,6 @@ class CashManager:
         cost_rows = [
             ("Credit carry (diff.)", opt_cb.credit_carry_cost, man_cb.credit_carry_cost),
             ("Debit carry (o/d)",    opt_cb.debit_carry_cost,  man_cb.debit_carry_cost),
-            ("FX exposure",          opt_cb.fx_exposure_cost,  man_cb.fx_exposure_cost),
             ("Commission",           opt_cb.commission_cost,   man_cb.commission_cost),
             ("Rate vs reference",     opt_cb.spread_cost,       man_cb.spread_cost),
             ("Terminal unwind",       opt_cb.terminal_unwind_cost,

@@ -128,7 +128,7 @@ own. A plausible-looking formula that is quietly wrong is worse than no formula.
 ### The cost model is duplicated in four places
 
 This is the single most important thing to know before changing anything economic. The same
-formulas (credit carry differential, debit carry, FX exposure penalty, tiered commission)
+formulas (credit carry differential, debit carry, tiered commission, spread, terminal unwind)
 are re-implemented as:
 
 1. `CashOptimizer._build_objective()` — as PuLP linear terms (the thing actually minimised)
@@ -326,8 +326,18 @@ gamed by selling a sliver of currency purely to manufacture the overdraft it loo
   derived from the scenario's own cash (`balance_headroom`, default 1.25×) unless
   `max_balance` is set explicitly. A scenario whose own ladder breaches it raises
   a `ValueError` naming the currency and day, rather than returning `Infeasible`.
+- **There is no FX exposure penalty.** A 1bp/day charge on the absolute foreign
+  position used to sit in the objective. It was a risk proxy rather than a cash
+  cost — nothing debits the account for it — and it was removed because the
+  objective is meant to measure money actually lost. It was worth 16–26% of total
+  cost on scenarios that hold anything. Two consequences worth knowing: reported
+  costs fell (S11 5,268 → 4,968, S13 1,551 → 1,467), and the largest model got
+  slower, because charging the position was breaking ties for the solver. On a
+  four-currency nine-day book that is roughly a 3× increase in solve time; the
+  smaller scenarios are unchanged. If a position limit is wanted, it belongs in
+  `_holding_ceiling`, where it constrains rather than prices.
 - **The objective is a cost, and `net_terminal_wealth` is the money.** The
-  objective measures total value lost to spreads, commission, carry, exposure and
+  objective measures total value lost to spreads, commission, carry and
   any residual position. `Result.reference_value - total_cost` is exactly the base
   currency the plan delivers. Keep new objective terms at spread scale: notional-
   scale terms would swamp the relative threshold the optimality check relies on.

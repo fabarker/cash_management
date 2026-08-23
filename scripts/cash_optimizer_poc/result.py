@@ -406,7 +406,7 @@ class Result:
     ) -> Tuple[float, float, float]:
         """Compute the three balance-dependent cost components.
 
-        Returns ``(credit_carry, debit_carry, fx_exposure, terminal_unwind)``
+        Returns ``(credit_carry, debit_carry, terminal_unwind)``
         — all in base currency, using the same formulas as the optimizer
         objective.
         """
@@ -418,7 +418,6 @@ class Result:
         base_label = f"{base} (Base)"
         base_credit_rate = cfg.credit_carry_bps_per_day[base]
         base_debit_rate = cfg.debit_carry_bps_per_day[base]
-        fx_start = cfg.fx_exposure_from_day
         carry_start = cfg.credit_carry_start_day
         # Taken from the balances rather than Config.currencies: a currency
         # discovered from the cash flows is in the plan but not in that list,
@@ -428,7 +427,6 @@ class Result:
 
         credit_carry = 0.0
         debit_carry = 0.0
-        fx_exposure = 0.0
 
         # Base currency debit carry
         for d in range(cfg.horizon_days):
@@ -460,12 +458,6 @@ class Result:
                 # Debit carry: value negative balance at ask (entry rate)
                 debit_carry += debit_rate_bps / 1e4 * spot_ask * bn
 
-                # FX exposure: value at spot mid (risk-neutral)
-                if d >= fx_start:
-                    fx_exposure += (
-                        cfg.fx_exposure_bps_per_day / 1e4
-                        * spot_mid * (bp + bn)
-                    )
 
         # Cost of unwinding whatever is still held at the horizon.
         terminal_unwind = 0.0
@@ -484,7 +476,7 @@ class Result:
                     + ((s_ask - s_mid) + unwind_bps * s_ask) * snap.debit
                 )
 
-        return credit_carry, debit_carry, fx_exposure, terminal_unwind
+        return credit_carry, debit_carry, terminal_unwind
 
     # ── Tenor cost decomposition helpers ──────
 
@@ -550,7 +542,6 @@ class Result:
         settle_lag = cfg.tenors[tenor]
         settle_day = trade_day + settle_lag
         carry_start = cfg.credit_carry_start_day
-        fx_start = cfg.fx_exposure_from_day
 
         # Direction-appropriate rate
         if direction_value == "SELL":
@@ -568,7 +559,6 @@ class Result:
         foreign_credit_bps = cfg.credit_carry_bps_per_day.get(ccy, 0.0)
         net_carry_bps = base_credit_bps - foreign_credit_bps
         debit_bps = cfg.debit_carry_bps_per_day.get(ccy, 0.0)
-        exposure_bps = cfg.fx_exposure_bps_per_day
 
         # ── Baseline proceeds ──
         baseline = best_rate * n_foreign
@@ -612,20 +602,8 @@ class Result:
             debit_cost = 0.0
 
         # ── FX exposure penalty ──
-        if direction_value == "SELL":
-            exposure_days = sum(
-                1 for d in range(trade_day, settle_day)
-                if d < horizon and d >= fx_start
-            )
-        else:
-            exposure_days = sum(
-                1 for d in range(trade_day, settle_day)
-                if d < horizon and d >= fx_start
-            )
-        fx_exposure_cost = exposure_bps / 1e4 * spot_mid * n_foreign * exposure_days
-
         # ── Obj Cost (what the optimizer minimises) ──
-        obj_cost = commission_cost + carry_diff_cost + debit_cost + fx_exposure_cost
+        obj_cost = commission_cost + carry_diff_cost + debit_cost
 
         # ── Net Realised Value ──
         # Baseline + FX rate adjustment − all costs
@@ -640,7 +618,6 @@ class Result:
             "commission_cost": commission_cost,
             "carry_diff_cost": carry_diff_cost,
             "debit_cost": debit_cost,
-            "fx_exposure_cost": fx_exposure_cost,
             "obj_cost": obj_cost,
             "net_realised_value": net_realised,
         }
@@ -746,9 +723,9 @@ class Result:
         )
 
         # ── Balance-dependent costs ──
-        credit_carry, debit_carry, fx_exposure, terminal_unwind = (
+        credit_carry, debit_carry, terminal_unwind = (
             self._compute_balance_costs(cfg))
-        balance_cost = credit_carry + debit_carry + fx_exposure + terminal_unwind
+        balance_cost = credit_carry + debit_carry + terminal_unwind
 
         lines.append("")
         lines.append(f"  {'─' * (w - 4)}")
@@ -756,7 +733,6 @@ class Result:
         lines.append(f"  {'─' * (w - 4)}")
         lines.append(f"    Credit carry differential (all ccys)  : {credit_carry:>{col},.4f}")
         lines.append(f"    Debit carry (all ccys incl. base)     : {debit_carry:>{col},.4f}")
-        lines.append(f"    FX exposure penalty                   : {fx_exposure:>{col},.4f}")
         if cfg.value_trade_rates:
             lines.append(f"    Terminal unwind of residual position  : {terminal_unwind:>{col},.4f}")
         lines.append(f"    {'─' * 52}")

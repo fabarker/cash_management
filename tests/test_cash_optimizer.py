@@ -233,7 +233,7 @@ class TestTradeRateValuation(CostAssertions):
             opening_balances={"USD": 1_000_000},
         )._compute_cost(r.balances, r.trades)
         non_ladder = (breakdown.commission_cost + breakdown.credit_carry_cost
-                      + breakdown.debit_carry_cost + breakdown.fx_exposure_cost)
+                      + breakdown.debit_carry_cost)
         self.assertCostClose(r.net_terminal_wealth, gbp - non_ladder)
 
     def test_reference_value_is_the_frictionless_book(self):
@@ -370,7 +370,6 @@ class TestGuardRails(CostAssertions):
                 r = solve([], {"GBP": 50_000_000, "USD": 1.0},
                           constraints=flags,
                           commission_tiers=[CommissionTier(500_000_000, 0.0)],
-                          fx_exposure_bps_per_day=0.0,
                           credit_carry_pa={"GBP": 3.65, "USD": usd_rate,
                                            "EUR": 0.2, "JPY": 0.01})
                 peak = max((b.balance for b in r.balances if b.ccy == "USD"),
@@ -1037,21 +1036,11 @@ class TestDerivedConfigValues(CostAssertions):
         cfg.commission_tiers = [CommissionTier(250_000, 20.0)]
         self.assertCostClose(cfg.big_m, 250_001.0)
 
-    def test_the_exposure_start_day_tracks_the_tenors(self):
-        cfg = Config()
-        self.assertEqual(cfg.fx_exposure_from_day, 3)
-        cfg.tenors = {"T0": 0, "T1": 1, "T2": 2, "T5": 5}
-        self.assertEqual(cfg.fx_exposure_from_day, 6)
-
-    def test_an_explicit_exposure_start_day_is_honoured(self):
-        self.assertEqual(Config(fx_exposure_start_day=1).fx_exposure_from_day, 1)
-
     def test_nothing_derived_is_stored(self):
         import dataclasses
         names = {f.name for f in dataclasses.fields(Config)}
         self.assertNotIn("big_m", names, "a stored copy could go stale")
         self.assertIsInstance(Config.big_m, property)
-        self.assertIsInstance(Config.fx_exposure_from_day, property)
 
     def test_replace_carries_the_derived_values_correctly(self):
         from dataclasses import replace
@@ -1079,10 +1068,10 @@ class TestSingleClassDefinitions(CostAssertions):
     def test_the_total_includes_every_component(self):
         breakdown = CostBreakdown(
             credit_carry_cost=10.0, debit_carry_cost=5.0,
-            fx_exposure_cost=2.0, commission_cost=100.0,
+            commission_cost=100.0,
             spread_cost=20.0, terminal_unwind_cost=3.0,
         )
-        self.assertCostClose(breakdown.total_cost, 140.0)
+        self.assertCostClose(breakdown.total_cost, 138.0)
 
     def test_the_rate_term_reaches_the_total(self):
         # The exact regression the duplication caused.
@@ -1149,8 +1138,6 @@ class TestConfigIsolation(CostAssertions):
                               opening_balances={"GBP": 5_000_000},
                               constraints=ConstraintFlags(terminal_sweep=False))
         self.assertEqual(variant.config.big_m, cfg.big_m)
-        self.assertEqual(variant.config.fx_exposure_from_day,
-                         cfg.fx_exposure_from_day)
         self.assertEqual(variant.config.day_count("USD"), cfg.day_count("USD"))
         self.assertEqual(variant.solve_optimal().status, "Optimal")
 
@@ -1297,7 +1284,6 @@ class TestHoldingCorridor(CostAssertions):
             with self.subTest(usd_rate=rate):
                 r = solve([], {"GBP": 50_000_000, "USD": 1.0},
                           commission_tiers=[CommissionTier(500_000_000, 0.0)],
-                          fx_exposure_bps_per_day=0.0,
                           credit_carry_pa={"GBP": 0.5, "USD": rate,
                                            "EUR": 1.0, "JPY": 0.01},
                           debit_carry_pa={"GBP": 6.0, "USD": 9.0,

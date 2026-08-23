@@ -264,12 +264,6 @@ class Config:
         return {ccy: rate * 100.0 / self.day_count(ccy)
                 for ccy, rate in self.debit_carry_pa.items()}
 
-    # FX exposure penalty (bps per day on absolute position)
-    fx_exposure_bps_per_day: float = 1.0
-
-    # Day index from which the FX exposure penalty applies.
-    fx_exposure_start_day: Optional[int] = None
-
     # Max size of a single trade, in foreign ccy units, per
     # (currency, day, tenor).  Must not exceed the total capacity of the
     # commission schedule — ``validate()`` enforces that.
@@ -435,18 +429,6 @@ class Config:
         if self.commission_tiers:
             return min(self.max_trade, self.commission_tiers[-1].threshold) + 1.0
         return self.max_trade + 1.0
-
-    @property
-    def fx_exposure_from_day(self) -> int:
-        """First day the FX exposure penalty applies.
-
-        ``fx_exposure_start_day`` is the override; left as ``None`` it
-        resolves to one day past the longest settlement lag, so a position
-        is not charged for exposure it could not yet have closed.
-        """
-        if self.fx_exposure_start_day is not None:
-            return self.fx_exposure_start_day
-        return max(self.tenors.values()) + 1
 
     # ── FX rate helpers ────────────────────────────────────────
 
@@ -771,7 +753,6 @@ class CostBreakdown:
 
     credit_carry_cost: float = 0.0
     debit_carry_cost: float = 0.0
-    fx_exposure_cost: float = 0.0
     commission_cost: float = 0.0
     # Rate paid away against the reference rate (finding F4).
     spread_cost: float = 0.0
@@ -784,7 +765,6 @@ class CostBreakdown:
         return (
             self.credit_carry_cost
             + self.debit_carry_cost
-            + self.fx_exposure_cost
             + self.commission_cost
             + self.spread_cost
             + self.terminal_unwind_cost
@@ -795,7 +775,6 @@ class CostBreakdown:
         lines = [
             f"{indent}Credit carry (differential) : {self.credit_carry_cost:>14,.4f}",
             f"{indent}Debit carry (overdraft)     : {self.debit_carry_cost:>14,.4f}",
-            f"{indent}FX exposure penalty         : {self.fx_exposure_cost:>14,.4f}",
             f"{indent}Commission                  : {self.commission_cost:>14,.4f}",
             f"{indent}Rate vs reference           : {self.spread_cost:>14,.4f}",
             f"{indent}Terminal unwind             : {self.terminal_unwind_cost:>14,.4f}",
