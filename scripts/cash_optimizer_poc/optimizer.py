@@ -719,47 +719,40 @@ class CashOptimizer:
     def _add_no_carry_trade_constraint(self, prob: pulp.LpProblem) -> None:
         """Prevent carry-trade behaviour by forcing prompt conversion.
 
-        Three rules are enforced per foreign currency:
+        One rule per foreign currency: the balance must reach zero by
+        ``last_activity_day + max_settlement_lag + 1``.  If the currency
+        has no cashflows at all this equals ``max_settlement_lag``, so an
+        opening balance must be converted within the spot settlement
+        window.
 
-        1. **Sweep deadline**: the foreign balance must reach zero by
-           ``last_activity_day + max_settlement_lag + 1``.  If the
-           currency has no cashflows at all, this equals
-           ``max_settlement_lag`` (the opening balance must be
-           converted within the spot settlement window).
+        Two further rules used to live here and have been removed.
 
-        2. **Monotonic drawdown**: on every day that has no future
-           cashflow activity from that day onward, the foreign balance
-           must be ≤ the previous day's balance.
+        A **monotonic drawdown** rule held the balance at or below the
+        previous day's on any day with no cashflow still ahead of it.  Its
+        window is only the days between the last cashflow and the sweep
+        deadline above, and across every scenario tested it never changed
+        an answer: the objective already has no reason to build a position
+        it must liquidate a day or two later.
 
-        3. **No speculative buys**: all buy variables for days with
-           no future outflows are forced to zero, preventing the
-           optimizer from buying foreign currency purely for yield.
+        A **no speculative buys** rule zeroed every buy variable on days
+        with no future outflow.  It was not merely inert but strictly
+        dominated by the anti-speculative cap, which is a cumulative budget
+        rather than a daily allowance -- once the genuine need is bought
+        the budget is spent, and nothing further can be bought on any later
+        day regardless.  Worse, it read the cashflow file alone, so it
+        could not see an opening overdraft: a currency that started
+        overdrawn with nothing else scheduled was denied any purchase while
+        the sweep deadline above still demanded its balance reach zero, and
+        the model returned Infeasible for an ordinary overdrawn account.  A
+        one-dollar outflow flipped the same currency from "may not trade"
+        to "may buy without limit".
 
-        All constraints are purely linear.
+        Purely linear.
         """
         max_lag = max(self.cfg.tenors.values())
 
         for ccy in self.active_foreign_ccys:
             horizon = self.cfg.horizon_days
-
-            # Precompute: does this currency have any cashflow on or
-            # after day d?  Scan backwards.
-            has_future = [False] * horizon
-            for d in range(horizon - 1, -1, -1):
-                if abs(self.cf.get(ccy, d)) > 1e-9:
-                    has_future[d] = True
-                elif d < horizon - 1:
-                    has_future[d] = has_future[d + 1]
-
-            # Precompute: does this currency have any future outflows
-            # on or after day d?  Only outflows justify buying.
-            has_future_outflow = [False] * horizon
-            for d in range(horizon - 1, -1, -1):
-                cf_val = self.cf.get(ccy, d)
-                if cf_val < -1e-9:
-                    has_future_outflow[d] = True
-                elif d < horizon - 1:
-                    has_future_outflow[d] = has_future_outflow[d + 1]
 
             # Find the last day with a non-zero cashflow.
             last_activity_day = -1
@@ -780,52 +773,6 @@ class CashOptimizer:
                     "No-carry-trade sweep for %s: "
                     "last_activity=D%d, zero from D%d",
                     ccy, last_activity_day, sweep_by,
-                )
-
-            # ── Rule 2: Monotonic drawdown on idle days ──
-            #
-            # Written on the positive part of the balance, not the signed
-            # balance.  The rule means "wind a holding down, do not build it
-            # back up".  Applied to a signed balance it also said an
-            # overdraft may only deepen and can never be repaid, which is a
-            # different claim and a wrong one — it was one of the three
-            # constraints behind the day-0 funding trap.
-            n_mono = 0
-            for d in range(1, horizon):
-                if not has_future[d]:
-                    prob += (
-                        self._v("bal_pos", ccy, d)
-                        <= self._v("bal_pos", ccy, d - 1),
-                        f"no_carry_mono_{ccy}_{d}",
-                    )
-                    n_mono += 1
-
-            if n_mono:
-                log.debug(
-                    "No-carry-trade monotonic drawdown for %s: "
-                    "%d day(s) constrained", ccy, n_mono,
-                )
-
-            # ── Rule 3: Block buys when no future outflows ──
-            n_blocked = 0
-            for d in range(horizon):
-                if not has_future_outflow[d]:
-                    for tenor in self.cfg.tenors:
-                        # Zero each individual segment variable for
-                        # robustness (avoids lpSum == 0 precision issues).
-                        for k in range(len(self.cfg.commission_tiers)):
-                            seg = self._v("buy_seg", ccy, d, tenor, k)
-                            if seg is not None:
-                                prob += (
-                                    seg == 0,
-                                    f"no_carry_nobuy_{ccy}_{d}_{tenor}_{k}",
-                                )
-                                n_blocked += 1
-
-            if n_blocked:
-                log.debug(
-                    "No-carry-trade buy block for %s: "
-                    "%d buy variable(s) zeroed", ccy, n_blocked,
                 )
 
     # ── Objective ──────────────────────────

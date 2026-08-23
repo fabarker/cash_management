@@ -787,10 +787,19 @@ class TestCurrencyDiscovery(CostAssertions):
 
 
 class TestMonotonicDrawdown(CostAssertions):
-    """The no-carry rule means "wind a holding down, do not build it back
-    up".  Written on the signed balance it also said an overdraft may only
-    deepen and can never be repaid, which is a different claim and a wrong
-    one (F11).  It applies to the positive part now."""
+    """A holding winds down and is not built back up.
+
+    There is no longer a rule that says so.  The dedicated monotonic
+    drawdown constraint was removed after it was shown never to change an
+    answer: the sweep deadline forces the balance to zero shortly after
+    the last cashflow anyway, and the objective has no reason to build a
+    position it must liquidate a day later.
+
+    These tests assert the property rather than the mechanism, which is
+    why they still hold.  If a future change makes any of them fail, the
+    property has genuinely been lost and needs a rule again -- do not
+    relax the assertion.
+    """
 
     def test_an_overdraft_after_the_last_activity_can_be_repaid(self):
         # No same-day settlement, so a payment due today leaves the currency
