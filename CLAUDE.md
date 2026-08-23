@@ -13,6 +13,9 @@ There is no README, no lint config and no packaging metadata. The only third-par
 dependency is `pulp` (which bundles CBC); `highspy` is optional but strongly
 preferred — see the solver note under Gotchas.
 
+Each audit finding was fixed in its own commit, and `REVERTING.md` documents how to
+undo any one of them individually.
+
 ## Tests
 
 ```bash
