@@ -776,6 +776,61 @@ class TestCurrencyDiscovery(CostAssertions):
         self.assertIn("credit_carry_pa", str(ctx.exception))
 
 
+class TestManualPlanViolations(CostAssertions):
+    """execute_trades deliberately prices whatever it is given, so a manual
+    plan can use trades the optimizer was forbidden to consider and appear
+    to beat it.  compare() called that impossible; it is routine, and the
+    useful thing is to name the rule that was broken (F23)."""
+
+    def _manager(self, **cfg_kw):
+        cfg = Config(**cfg_kw)
+        cf = CashFlowSet(horizon_days=5)
+        cf.add("USD", 2, -100_000)
+        return CashManager(cfg, cf, opening_balances={"GBP": 20_000_000})
+
+    def test_a_legal_plan_reports_nothing(self):
+        manager = self._manager()
+        legal = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.BUY, 100_000.0)])
+        self.assertEqual(manager.constraint_violations(legal), [])
+
+    def test_a_round_trip_is_caught(self):
+        manager = self._manager()
+        looped = manager.execute_trades([
+            ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0),
+            ManualTrade("USD", 1, "T1", Direction.SELL, 800_000.0),
+        ])
+        self.assertTrue(any("no_loop" in v
+                            for v in manager.constraint_violations(looped)))
+
+    def test_buying_beyond_the_funding_need_is_caught(self):
+        manager = self._manager()
+        oversized = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0)])
+        self.assertTrue(any("anti_speculative" in v
+                            for v in manager.constraint_violations(oversized)))
+
+    def test_leaving_a_position_open_is_caught(self):
+        manager = self._manager()
+        left_open = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.BUY, 900_000.0)])
+        self.assertTrue(any("terminal_sweep" in v
+                            for v in manager.constraint_violations(left_open)))
+
+    def test_a_ticket_below_the_minimum_is_caught(self):
+        manager = self._manager(min_trade=50_000.0)
+        tiny = manager.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.BUY, 100.0)])
+        self.assertTrue(any("min_trade" in v
+                            for v in manager.constraint_violations(tiny)))
+
+    def test_the_impossible_claim_is_gone(self):
+        import inspect
+        import scripts.cash_optimizer_poc.cash_manager as cash_manager
+        self.assertNotIn("This should not happen",
+                         inspect.getsource(cash_manager))
+
+
 class TestMinimumTradeSize(CostAssertions):
     """Nothing stopped the optimizer emitting a ticket nobody could deal.
     The activation binaries existed for exactly this and carried no floor

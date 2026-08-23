@@ -818,6 +818,63 @@ class CashManager:
 
         return cost
 
+    def constraint_violations(self, result) -> List[str]:
+        """Which of the optimizer's rules a hand-entered plan breaks.
+
+        ``execute_trades`` deliberately prices whatever it is given: that is
+        the point of a workbench.  It checks only currency, tenor, horizon
+        and size, so a manual plan can use trades the optimizer was
+        forbidden to consider — and then appear to beat it.
+
+        The old warning called that outcome impossible. It is not; it is
+        routine, and the useful thing is to say which rule was broken.
+        """
+        cfg = self._cfg
+        flags = cfg.constraints
+        violations: List[str] = []
+        trades = result.trades
+
+        if flags.no_loop:
+            settle: Dict[Tuple[str, int], set] = {}
+            for t in trades:
+                settle.setdefault((t.ccy, t.settle_day), set()).add(
+                    t.direction.value)
+            for (ccy, day), directions in sorted(settle.items()):
+                if len(directions) > 1:
+                    violations.append(
+                        f"no_loop: {ccy} is both bought and sold for "
+                        f"settlement on day {day}")
+
+        if flags.anti_speculative:
+            optimizer = CashOptimizer(cfg, self._cashflows,
+                                      opening_balances=self._opening)
+            for ccy in optimizer.active_foreign_ccys:
+                bought = sum(t.amount for t in trades
+                             if t.ccy == ccy and t.direction == Direction.BUY)
+                cap = max(optimizer._shortfall_profile(ccy), default=0.0)
+                if bought > cap + max(cap * 1e-6, 1.0):
+                    violations.append(
+                        f"anti_speculative: {bought:,.2f} {ccy} bought against "
+                        f"a funding need of {cap:,.2f}")
+
+        if cfg.min_trade:
+            for t in trades:
+                if t.amount + 1e-6 < cfg.min_trade_in(t.ccy):
+                    violations.append(
+                        f"min_trade: {t.amount:,.2f} {t.ccy} on day {t.day} is "
+                        f"below the {cfg.min_trade_in(t.ccy):,.2f} minimum")
+
+        if flags.terminal_sweep:
+            last = cfg.horizon_days - 1
+            for b in result.balances:
+                if b.day == last and not b.ccy.startswith(cfg.base_ccy) \
+                        and abs(b.balance) > 0.01:
+                    violations.append(
+                        f"terminal_sweep: {b.ccy} closes at {b.balance:,.2f} "
+                        f"rather than zero")
+
+        return violations
+
     # ── Comparison ─────────────────────────
 
     def _compute_optimal_cost_breakdown(self, opt: Result) -> CostBreakdown:
@@ -976,10 +1033,29 @@ class CashManager:
             )
         else:
             lines.append(
-                f"\n  ✓  {man_label} costs {abs(total_diff):,.4f} LESS "
+                f"\n  ⚠  {man_label} costs {abs(total_diff):,.4f} LESS "
                 f"than optimal."
-                f"\n     (This should not happen — check for constraint violations.)"
             )
+            broken = self.constraint_violations(manual)
+            if broken:
+                lines.append(
+                    "     It uses trades the optimizer was not allowed to "
+                    "consider:"
+                )
+                for v in broken:
+                    lines.append(f"       - {v}")
+                lines.append(
+                    "     Relax the rule if it is wrong, or discard the plan."
+                )
+            else:
+                lines.append(
+                    "     It breaks none of the active constraints, so the "
+                    "optimizer"
+                )
+                lines.append(
+                    "     should have found it — treat the optimal result as "
+                    "suspect."
+                )
 
         # ── Terminal balance comparison ──
         lines.append(f"\n  {'─' * (w - 4)}")
