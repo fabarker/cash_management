@@ -350,13 +350,21 @@ class Config:
     # position still cannot be built) while giving the solver room to
     # work.  The allowance is ``max(cap * tolerance, min_slack)``, with
     # ``min_slack`` in the foreign currency's own units.
-    # Slack on the holding ceiling.  Deliberately zero.  The cap it
-    # replaced needed a tolerance because the terminal sweep drove
-    # cumulative purchases exactly onto it, leaving a pin the solver could
-    # not certify; a ceiling on a balance has no such pin and has not
-    # needed one.  Loosen only if degeneracy actually shows up.
-    holding_tolerance: float = 0.0
-    holding_min_slack: float = 0.0
+    # Slack on the holding corridor, applied to both bounds.
+    #
+    # This was tried at zero on the reasoning that a bound on a balance has
+    # no pin for the solver to trip over, unlike the cumulative purchase cap
+    # it replaced.  That was wrong.  A ladder whose deepest overdraft is
+    # exactly the floor -- which is what "do nothing" always produces -- puts
+    # the bound precisely on the value the plan needs, and the solver cannot
+    # certify it: a five-day scenario went Infeasible that solved at six
+    # days, and one hundredth of a currency unit was enough to flip it back.
+    #
+    # One unit is negligible against any dealable amount.  Where a bound is
+    # zero it stays exactly zero (see _add_holding_ceiling), so a currency
+    # with nothing to justify still cannot hold a penny.
+    holding_tolerance: float = 1e-6
+    holding_min_slack: float = 1.0
 
     # ── Trade-rate valuation (finding F4) ─────────────────────
     #

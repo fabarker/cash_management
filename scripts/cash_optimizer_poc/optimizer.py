@@ -727,9 +727,16 @@ class CashOptimizer:
             ceiling = self._holding_ceiling(ccy)
             floor = [max(0.0, -b) for b in self._do_nothing_ladder(ccy)]
             for d in range(self.cfg.horizon_days):
-                cap = ceiling[d]
+                cap, flr = ceiling[d], floor[d]
+                # Slack only where the bound is a positive number the plan
+                # may be driven exactly onto.  A bound of zero stays exact:
+                # "almost nothing" would leave the day's binaries live for a
+                # position that cannot be justified at all.
                 if cap > 0.0:
                     cap += max(cap * self.cfg.holding_tolerance,
+                               self.cfg.holding_min_slack)
+                if flr > 0.0:
+                    flr += max(flr * self.cfg.holding_tolerance,
                                self.cfg.holding_min_slack)
                 # Applied as variable bounds, not as constraint rows.  A cap
                 # on a single variable is a bound; writing it as a row adds a
@@ -739,7 +746,7 @@ class CashOptimizer:
                 # three-currency twelve-day model, rows cost 3x the wall time
                 # of bounds for an identical answer.
                 self._tighten(self._v("bal_pos", ccy, d), cap)
-                self._tighten(self._v("bal_neg", ccy, d), floor[d])
+                self._tighten(self._v("bal_neg", ccy, d), flr)
 
             log.info(
                 "Holding corridor for %s: ceiling=%s floor=%s",
