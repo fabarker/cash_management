@@ -7,7 +7,7 @@ Controller stays thin.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,20 @@ class CashManagementState:
         controller can call ``solve_optimal()`` without rebuilding it.
     optimal_result : object or None
         The ``Result`` returned by ``cash_manager.solve_optimal()``.
+    manual_trades : list
+        The what-if route the user has entered by hand, as ``ManualTrade``
+        objects.  Held unpriced until ``evaluate_manual()`` runs.
+    manual_result : object or None
+        The ``ManualResult`` from pricing ``manual_trades``.  Cleared
+        whenever the ladder underneath it changes, because a plan priced
+        against a ladder that has since moved is worse than no plan.
+    manual_violations : list of str
+        Which of the optimizer's rules the priced route breaks.  Empty is
+        not the same as unchecked -- see ``manual_check_error``.
+    manual_check_error : str
+        Set when the violation check itself failed to run.  Kept apart from
+        ``manual_violations`` so an empty violation list never has to mean
+        two different things.
     group_number : str
         The most recently loaded group number (for display / logging).
     error_message : str
@@ -45,6 +59,12 @@ class CashManagementState:
     is_demo: bool = False             # True when the scenario was generated locally
     scenario: Any = None              # the loaded scenario dict, if any
     scenario_index: int = -1          # 0-based position in the library; -1 = none yet
+
+    # ── What-if (hand-entered) plan ───────────────────────────
+    manual_trades: List[Any] = field(default_factory=list)   # models.ManualTrade
+    manual_result: Any = None         # cash_manager.ManualResult
+    manual_violations: List[str] = field(default_factory=list)
+    manual_check_error: str = ''
 
     # ── Validation predicates ─────────────────────────────────
 
@@ -132,6 +152,9 @@ class CashManagementState:
         self.group_number = f"{sc['id']} ({index + 1}/{len(library)})"
         self.is_demo = True
         self.optimal_result = None  # Clear stale results on reload
+        # A different scenario means different currencies, tenors and
+        # horizon, so the entered route goes too -- not just its price.
+        self.clear_manual(keep_trades=False)
 
     @staticmethod
     def _resolve_selector(selector: str, library: List[Dict[str, Any]]) -> int:
@@ -261,6 +284,11 @@ class CashManagementState:
                 )
 
         # ── Step 3: run the optimizer ──
+        # The ladder has just been rebuilt from the user's edits, so any
+        # priced what-if plan describes a book that no longer exists.  The
+        # trades themselves stay -- they are still legal entries against
+        # this scenario, and re-pricing them is one click.
+        self.clear_manual()
         self.optimal_result = None
         result = mgr.solve_optimal()
         self.optimal_result = result
@@ -284,6 +312,278 @@ class CashManagementState:
 
         result = self.cash_manager.solve_optimal()
         self.optimal_result = result
+
+    # ── What-if: entering, pricing and comparing a hand plan ──
+
+    def clear_manual(self, keep_trades: bool = True) -> None:
+        """Discard the priced what-if plan.
+
+        Call this whenever the ladder, the constraints or the scenario move
+        underneath it.  *keep_trades* is the default because losing a typed
+        route on every ledger tweak is a worse failure than re-pricing it:
+        the entered trades stay legal, it is only their **price** that went
+        stale.  A scenario load passes ``keep_trades=False``, since the
+        currencies and horizon themselves change there.
+        """
+        self.manual_result = None
+        self.manual_violations = []
+        self.manual_check_error = ''
+        if not keep_trades:
+            self.manual_trades = []
+
+    def add_manual_trade(self, ccy: str, day: int, tenor: str,
+                         direction: str, amount: float) -> None:
+        """Append one hand-entered trade, rejecting it if it is not dealable.
+
+        Validation is the manager's, not a second copy of it: the candidate
+        is appended and the whole list re-checked, so the index in any error
+        message is the row the user is looking at.  A rejected trade is
+        removed again before the error propagates.
+        """
+        from scripts.cash_optimizer_poc.models import Direction, ManualTrade
+
+        if self.cash_manager is None:
+            raise RuntimeError('Load a scenario before entering trades.')
+
+        trade = ManualTrade(
+            ccy=ccy,
+            day=int(day),
+            tenor=tenor,
+            direction=Direction(direction),
+            amount=float(amount),
+        )
+        self.manual_trades.append(trade)
+        try:
+            self.cash_manager._validate_manual_trades(self.manual_trades)
+        except Exception:
+            self.manual_trades.pop()
+            raise
+        self.clear_manual()
+
+    def remove_manual_trade(self, index: int) -> None:
+        """Drop the trade at *index* and invalidate the priced plan."""
+        if 0 <= index < len(self.manual_trades):
+            self.manual_trades.pop(index)
+            self.clear_manual()
+
+    def copy_optimal_to_manual(self) -> int:
+        """Seed the what-if list from the optimizer's plan.
+
+        Returns the number of trades copied.  The point is to change one
+        thing -- a tenor, a day, a size -- and see what it costs, rather
+        than retyping a plan the solver already found.
+        """
+        from scripts.cash_optimizer_poc.models import ManualTrade
+
+        result = self.optimal_result
+        if result is None or not getattr(result, 'trades', None):
+            return 0
+        self.manual_trades = [
+            ManualTrade(ccy=t.ccy, day=t.day, tenor=t.tenor,
+                        direction=t.direction, amount=t.amount)
+            for t in result.trades
+        ]
+        self.clear_manual()
+        return len(self.manual_trades)
+
+    def evaluate_manual(self) -> None:
+        """Price the entered route and check it against the active rules.
+
+        No solver runs and the ``CashManager`` is not rebuilt, so the
+        optimizer's plan stays valid beside this one.  That is the whole
+        guarantee the comparison rests on: both plans reach
+        ``CashManager._compute_cost`` over the same ladder, so a difference
+        in the reported cost is a difference in the plan and never a
+        difference in how it was measured.
+
+        Blocking -- the controller runs it via ``run.io_bound``, because
+        the violation check builds a ``CashOptimizer`` to read the holding
+        corridor off it (it does not solve).
+        """
+        if self.cash_manager is None:
+            raise RuntimeError('No scenario loaded — call load_scenario() first.')
+
+        mgr = self.cash_manager
+        self.manual_check_error = ''
+        # An empty list is a legal plan -- it prices doing nothing -- and
+        # the manager already names that case better than a fixed label
+        # would, so let it.
+        self.manual_result = mgr.execute_trades(
+            list(self.manual_trades),
+            label='What-if' if self.manual_trades else None,
+        )
+        try:
+            self.manual_violations = mgr.constraint_violations(self.manual_result)
+        except Exception as exc:            # pragma: no cover - defensive
+            # An empty violation list must never stand in for "not checked".
+            log.exception('constraint_violations failed on the what-if plan')
+            self.manual_violations = []
+            self.manual_check_error = str(exc)
+
+    @property
+    def has_baseline(self) -> bool:
+        """True when there is an optimizer plan worth comparing against.
+
+        An ``Infeasible`` result is not one: it carries ``total_cost=None``
+        and no balances, so every delta computed from it would be a
+        comparison against nothing.  Pricing a hand plan is still useful
+        there -- it shows what the binding constraint costs -- which is why
+        this gates the *delta*, not the feature.
+        """
+        result = self.optimal_result
+        return result is not None and getattr(result, 'total_cost', None) is not None
+
+    def get_manual_trades_table_data(self) -> List[Dict[str, Any]]:
+        """Return the entered (not yet priced) trades as row dicts.
+
+        Settlement day is derived here rather than read off the trade,
+        because a ``ManualTrade`` does not carry one until the manager
+        resolves it.
+        """
+        mgr = self.cash_manager
+        if mgr is None:
+            return []
+        tenors = mgr.config.tenors
+        return [
+            {
+                'index': i,
+                'ccy': t.ccy,
+                'day': t.day,
+                'tenor': t.tenor,
+                'direction': t.direction.value,
+                'amount': t.amount,
+                'settle_day': t.day + tenors.get(t.tenor, 0),
+            }
+            for i, t in enumerate(self.manual_trades)
+        ]
+
+    def get_manual_verdict(self) -> Dict[str, Any]:
+        """Summarise the what-if plan against the baseline, in one dict.
+
+        ``kind`` is what the banner is written from:
+
+        ``no_baseline``    priced, nothing to compare against.
+        ``dearer``         legal and costs more — an ordinary answer.
+        ``void``           cheaper, but only by breaking a rule.  The
+                           saving is not available and is labelled so.
+        ``illegal``        dearer *and* illegal; the delta is beside the point.
+        ``suspect``        cheaper with nothing broken.  That should not
+                           happen against a proven optimum, so the finger
+                           points at the baseline, not the route — see
+                           the CBC note in CLAUDE.md.
+        ``level``          the same money either way.
+
+        Signs are the page's, not the model's: a cost is negative, so a
+        positive ``delta`` means the hand plan keeps more money.
+        """
+        if self.manual_result is None:
+            return {}
+
+        manual_impact = -self.manual_result.total_cost
+        opt = self.optimal_result
+        baseline = self.has_baseline
+        optimal_impact = -opt.total_cost if baseline else None
+        delta = (manual_impact - optimal_impact) if baseline else None
+
+        violations = list(self.manual_violations)
+        unproven = bool(getattr(opt, 'optimality_unproven', False)) if opt else False
+
+        if not baseline:
+            kind = 'no_baseline'
+        elif delta > 0.0005:
+            kind = 'void' if violations else 'suspect'
+        elif delta < -0.0005:
+            kind = 'illegal' if violations else 'dearer'
+        else:
+            kind = 'level'
+
+        return {
+            'kind': kind,
+            'manual_impact': manual_impact,
+            'optimal_impact': optimal_impact,
+            'delta': delta,
+            'violations': violations,
+            'check_error': self.manual_check_error,
+            'optimality_unproven': unproven,
+            'solver_used': getattr(opt, 'solver_used', '') if opt else '',
+            'solver_status': getattr(opt, 'status', '') if opt else '',
+            'n_trades': len(self.manual_result.trades),
+        }
+
+    def get_manual_comparison_rows(self) -> List[Dict[str, Any]]:
+        """Return the cost breakdown of both plans, line by line, with deltas.
+
+        Both sides come from ``cost_workings``, which emits the same keys in
+        the same order for any plan, so the rows line up and a per-line
+        difference means something: you can see *where* the money went, not
+        only that it went.  With no baseline the optimal columns are None
+        and the table degrades to the hand plan's own breakdown.
+        """
+        manual = self.get_cost_components(self.manual_result)
+        optimal = self.get_cost_components(self.optimal_result) if self.has_baseline else []
+        opt_by_key = {c['key']: c for c in optimal}
+
+        rows: List[Dict[str, Any]] = []
+        for c in manual:
+            o = opt_by_key.pop(c['key'], None)
+            rows.append({
+                'key': c['key'],
+                'label': c['label'],
+                'optimal': o['value'] if o else None,
+                'manual': c['value'],
+                'delta': (c['value'] - o['value']) if o else None,
+                'optimal_workings': o['workings'] if o else '',
+                'manual_workings': c['workings'],
+                'reconciles': c['reconciles'] and (o['reconciles'] if o else True),
+            })
+        # A key the optimal plan has and the manual one does not would
+        # otherwise vanish from a table that is meant to reconcile.
+        for key, o in opt_by_key.items():
+            rows.append({
+                'key': key,
+                'label': o['label'],
+                'optimal': o['value'],
+                'manual': 0.0,
+                'delta': -o['value'],
+                'optimal_workings': o['workings'],
+                'manual_workings': '',
+                'reconciles': o['reconciles'],
+            })
+        return rows
+
+    def get_manual_ladder_comparison(self) -> Dict[str, Any]:
+        """Return after-trade balances for both plans, as ccy x day rows.
+
+        Shape: ``{'days': [...], 'rows': [{'ccy', 'optimal', 'manual',
+        'delta'}]}`` with one list per plan, indexed by day.  Empty when
+        there is no baseline -- the caller shows the single-plan ladder
+        instead.
+        """
+        if self.manual_result is None or not self.has_baseline:
+            return {'days': [], 'rows': []}
+
+        def by_ccy(balances):
+            out: Dict[str, Dict[int, float]] = {}
+            for b in balances:
+                out.setdefault(b.ccy, {})[b.day] = b.balance
+            return out
+
+        opt = by_ccy(self.optimal_result.balances)
+        man = by_ccy(self.manual_result.balances)
+
+        days = sorted({d for m in list(opt.values()) + list(man.values()) for d in m})
+        rows = []
+        for ccy in opt.keys() | man.keys():
+            o = [opt.get(ccy, {}).get(d, 0.0) for d in days]
+            m = [man.get(ccy, {}).get(d, 0.0) for d in days]
+            rows.append({
+                'ccy': ccy,
+                'optimal': o,
+                'manual': m,
+                'delta': [mi - oi for oi, mi in zip(o, m)],
+            })
+        rows.sort(key=lambda r: r['ccy'])
+        return {'days': days, 'rows': rows}
 
     # ── Data extraction for UI tables ─────────────────────��───
 
@@ -340,12 +640,16 @@ class CashManagementState:
         ladder = mgr.cash_ladder  # List[CashLadderEntry]
         return self._pivot_ladder(ladder)
 
-    def get_trades_table_data(self) -> List[Dict[str, Any]]:
-        """Return the recommended trades as a list of row dicts.
+    def get_trades_table_data(self, result: Any = None) -> List[Dict[str, Any]]:
+        """Return a plan's trades as a list of row dicts.
 
         Each dict has: ccy, day, tenor, direction, amount, settle_day.
+
+        *result* defaults to the optimizer's plan.  Pass a ``ManualResult``
+        to render a hand-entered one instead: the two carry the same
+        ``trades`` list, so this reads either without special-casing.
         """
-        result = self.optimal_result
+        result = result if result is not None else self.optimal_result
         if result is None:
             return []
         return [
@@ -360,15 +664,19 @@ class CashManagementState:
             for t in result.trades
         ]
 
-    def get_after_trade_table_data(self) -> Dict[str, Any]:
-        """Return after-trade balance data (pivoted like the ledger)."""
-        result = self.optimal_result
+    def get_after_trade_table_data(self, result: Any = None) -> Dict[str, Any]:
+        """Return after-trade balance data (pivoted like the ledger).
+
+        *result* defaults to the optimizer's plan; pass a ``ManualResult``
+        for a hand-entered one.
+        """
+        result = result if result is not None else self.optimal_result
         if result is None:
             return {'days': [], 'rows': []}
 
         return self._pivot_balances(result.balances)
 
-    def get_cost_breakdown(self) -> Dict[str, float]:
+    def get_cost_breakdown(self, result: Any = None) -> Dict[str, float]:
         """Return cost breakdown as a dict.
 
         Keys: credit_carry, debit_carry, commission,
@@ -387,12 +695,14 @@ class CashManagementState:
         deleting in the first place.
         """
         mgr = self.cash_manager
-        result = self.optimal_result
+        result = result if result is not None else self.optimal_result
         if mgr is None or result is None:
             return {}
 
         # Use the CashManager's deterministic cost calculator for
-        # itemised breakdown of the optimal result.
+        # itemised breakdown of the result.  It reads only ``balances``
+        # and ``trades``, which a ManualResult carries too, so the same
+        # call prices both sides of a what-if comparison.
         cb = mgr._compute_optimal_cost_breakdown(result)
         return {
             'credit_carry': cb.credit_carry_cost,
@@ -403,7 +713,7 @@ class CashManagementState:
             'total': cb.total_cost,
         }
 
-    def get_cost_components(self) -> List[Dict[str, Any]]:
+    def get_cost_components(self, result: Any = None) -> List[Dict[str, Any]]:
         """Return each cost line with the arithmetic that produced it.
 
         Returned in **value-impact** convention: a cost is negative and a
@@ -420,7 +730,8 @@ class CashManagementState:
         """
         from scripts.cash_optimizer_poc.workings import cost_workings
 
-        if self.cash_manager is None or self.optimal_result is None:
+        result = result if result is not None else self.optimal_result
+        if self.cash_manager is None or result is None:
             return []
         return [
             {
@@ -430,7 +741,7 @@ class CashManagementState:
                 'workings': c.workings,
                 'reconciles': c.reconciles,
             }
-            for c in cost_workings(self.cash_manager, self.optimal_result,
+            for c in cost_workings(self.cash_manager, result,
                                    value_impact=True)
         ]
 

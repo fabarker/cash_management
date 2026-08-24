@@ -772,6 +772,13 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             # Hide stale results from a previous run
             self.refs.results_section.classes(add='hidden')
 
+            # The what-if section is revealed here, not after a solve: the
+            # optimiser's plan is a baseline when there is one, never a
+            # precondition for pricing a route by hand.
+            self._populate_whatif_inputs()
+            self._refresh_whatif()
+            self.refs.whatif_section.classes(remove='hidden')
+
             sc = self.state.scenario or {}
             ui.notify(
                 f'Loaded {sc.get("id", "")} — {sc.get("name", "")}',
@@ -832,6 +839,11 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             # Show the results section
             self.refs.results_section.classes(remove='hidden')
 
+            # apply_edits_and_optimize has already dropped the priced
+            # what-if plan (its ladder was just rewritten); redraw so the
+            # stale comparison is gone from the page as well as from state.
+            self._refresh_whatif()
+
             # Notify
             n_trades = len(trades_data)
             total = costs.get('total', 0.0)
@@ -850,6 +862,529 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         finally:
             self.state.is_loading = False
             self._close_progress()
+            self._update_generate_btn_state()
+            self._update_load_btn_state()
+
+    # ================================================================
+    # What-if — price a hand-entered route
+    # ================================================================
+
+    def _update_whatif_btn_state(self) -> None:
+        """Enable only what the current state can actually do."""
+        loaded = self.state.cash_manager is not None and not self.state.is_loading
+        for btn in (self.refs.whatif_add_btn, self.refs.whatif_evaluate_btn,
+                    self.refs.whatif_donothing_btn):
+            btn.enable() if loaded else btn.disable()
+
+        has_plan = bool(getattr(self.state.optimal_result, 'trades', None))
+        self.refs.whatif_copy_btn.enable() if (loaded and has_plan) \
+            else self.refs.whatif_copy_btn.disable()
+
+        has_entries = bool(self.state.manual_trades)
+        self.refs.whatif_clear_btn.enable() if (loaded and has_entries) \
+            else self.refs.whatif_clear_btn.disable()
+
+    def _populate_whatif_inputs(self) -> None:
+        """Fill the entry dropdowns from the loaded scenario.
+
+        Every option comes off the config rather than a hard-coded list:
+        the library spans five base currencies and the dealable set,
+        the horizon and the tenor names all change with the scenario.
+        """
+        mgr = self.state.cash_manager
+        if mgr is None:
+            return
+
+        cfg = mgr.config
+        ccys = list(mgr.foreign_currencies)
+        days = list(range(cfg.horizon_days))
+        tenors = list(cfg.tenors.keys())
+
+        self.refs.whatif_ccy_select.set_options(
+            ccys, value=ccys[0] if ccys else None)
+        self.refs.whatif_day_select.set_options(
+            days, value=days[0] if days else None)
+        self.refs.whatif_tenor_select.set_options(
+            tenors, value=tenors[0] if tenors else None)
+        self.refs.whatif_direction_select.set_value('BUY')
+        self.refs.whatif_amount_input.set_value(None)
+
+    def _render_entered_trades(self) -> None:
+        """Rebuild the entered-trades table from state.
+
+        Built from elements rather than raw HTML because each row carries
+        a remove button, and a button injected as a string is inert text.
+        """
+        container = self.refs.whatif_trades_container
+        container.clear()
+
+        rows = self.state.get_manual_trades_table_data()
+        if not rows:
+            with container:
+                ui.label(
+                    'No trades entered — evaluating now would price the '
+                    'do-nothing plan.'
+                ).classes('text-base text-gray-500').style('padding: 6px 0;')
+            return
+
+        headers = ('CCY', 'Day', 'Tenor', 'Direction', 'Amount', 'Settles', '')
+        with container:
+            with ui.element('table').classes('cash-table entered-table'):
+                with ui.element('thead'):
+                    with ui.element('tr').classes('table-header-row'):
+                        for h in headers:
+                            align = 'left' if h in ('CCY', 'Direction') else 'center'
+                            if h == 'Amount':
+                                align = 'right'
+                            with ui.element('th').classes('table-header-cell').style(
+                                    f'text-align: {align};'):
+                                ui.html(h, sanitize=False, tag='span')
+                with ui.element('tbody'):
+                    for r in rows:
+                        dir_cls = ('table-data-cell positive'
+                                   if r['direction'] == 'BUY'
+                                   else 'table-data-cell negative')
+                        with ui.element('tr').classes('table-data-row'):
+                            self._td(r['ccy'], 'table-data-cell', 'left')
+                            self._td(str(r['day']), 'table-data-cell', 'center')
+                            self._td(r['tenor'], 'table-data-cell', 'center')
+                            self._td(r['direction'], dir_cls, 'left')
+                            self._td(f'{r["amount"]:,.2f}', 'table-data-cell', 'right')
+                            self._td(f'D{r["settle_day"]}', 'table-data-cell', 'center')
+                            with ui.element('td').classes('table-data-cell').style(
+                                    'text-align: center;'):
+                                (ui.button(icon='close',
+                                           on_click=lambda _, i=r['index']:
+                                           self._on_whatif_remove(i))
+                                 .props('flat dense round size=sm color=grey-7'))
+
+    @staticmethod
+    def _td(text: str, css: str, align: str = 'right') -> None:
+        """One table cell built as an element (so siblings can hold widgets)."""
+        with ui.element('td').classes(css).style(f'text-align: {align};'):
+            ui.html(escape(text), sanitize=False, tag='span')
+
+    # ── Verdict ─────────────────────────────────────────────────
+
+    #: (banner class, chip text) per verdict kind.  The colour is the
+    #: message here: a saving that is not available must not be green.
+    _VERDICT_STYLE = {
+        'no_baseline': ('info', 'no baseline'),
+        'dearer':      ('info', 'no rules broken'),
+        'level':       ('info', 'no rules broken'),
+        'void':        ('void', 'comparison void'),
+        'illegal':     ('void', 'rule broken'),
+        'suspect':     ('warn', 'check the baseline'),
+    }
+
+    def _verdict_html(self, v: Dict[str, Any]) -> str:
+        """Compose the banner: headline, one line of why, then the rules.
+
+        The framing is the whole point of the feature.  ``execute_trades``
+        prices whatever it is handed and checks only currency, tenor,
+        horizon and size, so a hand plan can use routes the optimiser was
+        forbidden to consider and then appear to beat it.  Breaking a rule
+        is *usually* how a manual plan wins, because the constraints exist
+        precisely to forbid profitable speculation -- so a bare "you saved
+        475.43" would be actively misleading in the case a user is most
+        likely to go looking for.
+        """
+        kind = v['kind']
+        css, chip = self._VERDICT_STYLE[kind]
+        delta = v['delta']
+        mine = v['manual_impact']
+
+        if kind == 'no_baseline':
+            head = f'Your route is worth {mine:,.2f} to the account.'
+            if v['solver_status'] == 'Infeasible':
+                sub = ('The optimiser found no feasible plan here, so there is '
+                       'nothing to compare against — but this figure is real, '
+                       'and the rules below are what it could not get around.')
+            else:
+                sub = ('No optimiser plan to compare against yet. Press '
+                       '"Get Suggested Trades" for a baseline.')
+        elif kind == 'level':
+            head = 'Your route costs the same as the optimal plan.'
+            sub = 'Different trades, identical money.'
+        elif kind == 'dearer':
+            head = f'Your route costs {abs(delta):,.2f} more than optimal.'
+            sub = ('It is a legal plan, just a dearer one. The difference '
+                   'column below says which cost line it went to.')
+        elif kind == 'illegal':
+            head = (f'Your route costs {abs(delta):,.2f} more than optimal — '
+                    f'and breaks a rule the optimiser must obey.')
+            sub = 'Dearer either way, so the rule is not what is costing you here.'
+        elif kind == 'void':
+            head = (f'Your route looks {delta:,.2f} better — but it breaks a '
+                    f'rule the optimiser must obey.')
+            sub = ('The arithmetic is right and the saving is not available. '
+                   'You have not found a better route; you have found the rule.')
+        else:  # suspect
+            head = (f'Your route is {delta:,.2f} better with no rule broken.')
+            sub = ('That should not be possible against a true optimum, so the '
+                   'baseline is the thing to doubt, not your route. '
+                   + ('The solver already flagged this plan as unproven. '
+                      if v['optimality_unproven'] else '')
+                   + f'Solved by {escape(v["solver_used"] or "unknown")} — CBC is '
+                     'known to return sub-optimal plans on this model and label '
+                     'them Optimal; installing highspy is the fix.')
+
+        html = (
+            f'<div class="verdict {css}">'
+            f'<div class="verdict-headline">{escape(head)}'
+            f'<span class="verdict-chip">{escape(chip)}</span></div>'
+            f'<div class="verdict-sub">{escape(sub)}</div>'
+        )
+        for rule in v['violations']:
+            html += f'<div class="verdict-rule">{escape(rule)}</div>'
+        if v['check_error']:
+            html += (
+                f'<div class="verdict-rule">The rule check could not be run, so '
+                f'this plan is unchecked rather than clean — '
+                f'{escape(v["check_error"])}</div>'
+            )
+        return html + '</div>'
+
+    # ── Comparison tables ───────────────────────────────────────
+
+    @staticmethod
+    def _clean(value: float, eps: float = 0.005) -> float:
+        """Flatten a value that rounds to nothing onto positive zero.
+
+        Floating-point subtraction of two equal balances lands on -0.0 as
+        readily as 0.0, and "-0" in a difference column reads as a real
+        movement too small to see rather than as no movement at all.
+        """
+        return 0.0 if abs(value) < eps else value
+
+    @classmethod
+    def _delta_cell(cls, value: float) -> str:
+        value = cls._clean(value)
+        css = 'table-data-cell'
+        if value < 0:
+            css += ' delta-neg'
+        elif value > 0:
+            css += ' delta-pos'
+        sign = f'{value:+,.2f}' if value else f'{value:,.2f}'
+        return f'<td class="{css}">{sign}</td>'
+
+    def _cost_comparison_html(self, v: Dict[str, Any],
+                              rows: List[Dict[str, Any]]) -> str:
+        """The two breakdowns side by side, with a per-line difference.
+
+        Both columns come from ``cost_workings`` over the same manager, so
+        they emit the same keys in the same order and the rows genuinely
+        line up.  That is what makes the difference column mean something
+        line by line -- you can see *where* the money went, not only that
+        it went.
+        """
+        baseline = v['delta'] is not None
+        head = (
+            '<tr class="table-header-row">'
+            '<th class="table-header-cell" style="text-align:left">Cost line</th>'
+            + ('<th class="table-header-cell">Optimal</th>' if baseline else '')
+            + '<th class="table-header-cell">Yours</th>'
+            + ('<th class="table-header-cell">Difference</th>' if baseline else '')
+            + '</tr>'
+        )
+
+        body = ''
+        run_opt = 0.0
+        run_man = 0.0
+        for r in rows:
+            run_man += r['manual']
+            body += f'<tr class="table-data-row"><td class="table-data-cell">{escape(r["label"])}</td>'
+            if baseline:
+                o = r['optimal'] or 0.0
+                run_opt += o
+                body += f'<td class="table-data-cell">{self._clean(o):,.2f}</td>'
+            body += (f'<td class="table-data-cell">'
+                     f'{self._clean(r["manual"]):,.2f}</td>')
+            if baseline:
+                body += self._delta_cell(r['delta'] or 0.0)
+            body += '</tr>'
+
+        # The lines must add up to the totals they sit under.  They have
+        # not always: two components were once missing and the table
+        # silently understated every plan by the spread.
+        for label, running, total in (
+                ('optimal', run_opt, v['optimal_impact']),
+                ('yours', run_man, v['manual_impact'])):
+            if total is None:
+                continue
+            if abs(total - running) > 0.0005:
+                body += (
+                    f'<tr class="table-data-row">'
+                    f'<td class="table-data-cell" style="color:#b26a00">'
+                    f'Unattributed ({escape(label)})</td>'
+                    + ('<td class="table-data-cell"></td>' if baseline else '')
+                    + f'<td class="table-data-cell" style="color:#b26a00">'
+                      f'{total - running:,.2f}</td>'
+                    + ('<td class="table-data-cell"></td>' if baseline else '')
+                    + '</tr>'
+                )
+
+        total_row = (
+            '<tr class="table-data-row" style="font-weight:700">'
+            '<td class="table-data-cell" style="color:#1F3864">NET VALUE IMPACT</td>'
+        )
+        if baseline:
+            total_row += (f'<td class="table-data-cell">'
+                          f'{self._clean(v["optimal_impact"]):,.2f}</td>')
+        total_row += (f'<td class="table-data-cell">'
+                      f'{self._clean(v["manual_impact"]):,.2f}</td>')
+        if baseline:
+            total_row += self._delta_cell(v['delta'])
+        total_row += '</tr>'
+
+        return (
+            '<div style="font-size:12px; color:#6c757d; margin-bottom:10px;">'
+            'Negative is value given up, positive is value gained — the page\'s '
+            'convention, which is the reverse of the model\'s. A positive '
+            'difference means your route keeps more money.'
+            '</div>'
+            f'<table class="cash-table compare-table"><thead>{head}</thead>'
+            f'<tbody>{body}{total_row}</tbody></table>'
+        )
+
+    @classmethod
+    def _ladder_comparison_html(cls, data: Dict[str, Any]) -> str:
+        """Optimal and manual after-trade balances, and the gap between them.
+
+        Three rows per currency rather than two grids: past two currencies
+        the difference row is the only one anyone reads.
+        """
+        days = data.get('days', [])
+        rows = data.get('rows', [])
+        if not rows:
+            return ''
+
+        head = (
+            '<tr class="table-header-row">'
+            '<th class="table-header-cell" style="text-align:left">CCY</th>'
+            '<th class="table-header-cell" style="text-align:left">Plan</th>'
+            + ''.join(f'<th class="table-header-cell">D{d}</th>' for d in days)
+            + '</tr>'
+        )
+
+        body = ''
+        for r in rows:
+            for n, (label, series) in enumerate(
+                    (('Optimal', r['optimal']), ('Yours', r['manual']),
+                     ('Difference', r['delta']))):
+                is_delta = label == 'Difference'
+                tr_cls = 'table-data-row row-delta' if is_delta else 'table-data-row'
+                body += f'<tr class="{tr_cls}">'
+                body += (f'<td class="table-data-cell">{escape(r["ccy"])}</td>'
+                         if n == 0 else
+                         '<td class="table-data-cell"></td>')
+                body += f'<td class="table-data-cell plan-cell">{label}</td>'
+                for val in series:
+                    val = cls._clean(val, 0.5)   # rows are shown to the unit
+                    css = 'table-data-cell'
+                    if is_delta and val < 0:
+                        css += ' delta-neg'
+                    elif is_delta and val > 0:
+                        css += ' delta-pos'
+                    elif not is_delta and val < 0:
+                        css += ' negative'
+                    text = f'{val:+,.0f}' if (is_delta and val) else f'{val:,.0f}'
+                    body += f'<td class="{css}">{text}</td>'
+                body += '</tr>'
+
+        return (
+            f'<table class="cash-table compare-table"><thead>{head}</thead>'
+            f'<tbody>{body}</tbody></table>'
+        )
+
+    def _render_whatif_results(self) -> None:
+        """Render the verdict, the cost comparison and the two ladders.
+
+        In descending order of what anyone actually looks at.  Nothing is
+        rendered at all until a route has been priced.
+        """
+        container = self.refs.whatif_results_container
+        container.clear()
+
+        if self.state.manual_result is None:
+            return
+
+        verdict = self.state.get_manual_verdict()
+        rows = self.state.get_manual_comparison_rows()
+
+        with container:
+            ui.html(self._verdict_html(verdict), sanitize=False)
+
+            with ui.card().classes('cost-card'):
+                ui.label('Cost breakdown').classes('card-section-title')
+                ui.html(self._cost_comparison_html(verdict, rows), sanitize=False)
+
+                # The derivations are kept but folded away: the headline is
+                # the delta, and a wall of arithmetic above it buries that.
+                with ui.expansion('Show the arithmetic behind each line').classes(
+                        'w-full').style('margin-top: 14px;'):
+                    for r in rows:
+                        if not r['manual_workings'] and not r['optimal_workings']:
+                            continue
+                        ui.label(r['label']).style(
+                            'font-size: 13px; font-weight: 700; color:#1c2b36; '
+                            'margin-top: 8px;')
+                        stale = '' if r['reconciles'] else ' stale'
+                        if r['optimal_workings']:
+                            ui.html(
+                                f'<div class="workings-line{stale}">optimal &nbsp;'
+                                f'{escape(r["optimal_workings"])}</div>',
+                                sanitize=False)
+                        if r['manual_workings']:
+                            ui.html(
+                                f'<div class="workings-line{stale}">yours &nbsp;&nbsp;&nbsp;'
+                                f'{escape(r["manual_workings"])}</div>',
+                                sanitize=False)
+                        if not r['reconciles']:
+                            ui.html(
+                                '<div class="workings-line stale">this derivation '
+                                'disagrees with the cost model — believe the '
+                                'figure, not the formula</div>', sanitize=False)
+
+            ladder = self.state.get_manual_ladder_comparison()
+            if ladder['rows']:
+                ui.label('Where the two ladders diverge').classes(
+                    'card-section-title').style('margin-top: 22px;')
+                ui.html(self._ladder_comparison_html(ladder), sanitize=False)
+            else:
+                ui.label('Cash projections — your route').classes(
+                    'card-section-title').style('margin-top: 22px;')
+                self._render_pivoted_table(
+                    ui.element('div').classes('w-full overflow-x-auto'),
+                    self.state.get_after_trade_table_data(self.state.manual_result),
+                    extra_css_class='after-trade-table',
+                )
+
+    def _refresh_whatif(self) -> None:
+        """Redraw the whole what-if section from state."""
+        self._render_entered_trades()
+        self._render_whatif_results()
+        self._update_whatif_btn_state()
+
+    def _invalidate_whatif(self) -> None:
+        """Drop the priced plan because the ladder underneath it moved.
+
+        The entered trades survive -- they are still legal entries against
+        this scenario, and re-pricing them is one click.  What must not
+        survive is the *price*, because a comparison against a book that
+        has since changed is the easiest way for this feature to lie.
+        """
+        had_result = self.state.manual_result is not None
+        self.state.clear_manual()
+        self._refresh_whatif()
+        return had_result
+
+    # ── Handlers ────────────────────────────────────────────────
+
+    def _on_whatif_add(self, *_) -> None:
+        """Validate and append one trade to the route."""
+        ccy = self.refs.whatif_ccy_select.value
+        day = self.refs.whatif_day_select.value
+        tenor = self.refs.whatif_tenor_select.value
+        direction = self.refs.whatif_direction_select.value
+        amount = self.refs.whatif_amount_input.value
+
+        if not ccy or day is None or not tenor or not direction:
+            ui.notify('Choose a currency, day, tenor and direction.',
+                      type='warning', position='top')
+            return
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            ui.notify('Enter an amount.', type='warning', position='top')
+            return
+
+        try:
+            self.state.add_manual_trade(ccy, day, tenor, direction, amount)
+        except Exception as exc:
+            # The manager's messages name the offending row and say what is
+            # wrong with it, which is more use than a generic rejection.
+            ui.notify(str(exc), type='negative', position='top', multi_line=True,
+                      classes='whitespace-pre-line')
+            return
+
+        self.refs.whatif_amount_input.set_value(None)
+        self._refresh_whatif()
+
+    def _on_whatif_remove(self, index: int) -> None:
+        self.state.remove_manual_trade(index)
+        self._refresh_whatif()
+
+    def _on_whatif_clear(self, *_) -> None:
+        self.state.clear_manual(keep_trades=False)
+        self._refresh_whatif()
+        ui.notify('What-if route cleared.', type='info', position='top')
+
+    def _on_whatif_copy_optimal(self, *_) -> None:
+        """Seed the route from the optimiser's plan, to vary one thing."""
+        n = self.state.copy_optimal_to_manual()
+        self._refresh_whatif()
+        if n:
+            ui.notify(f'Copied {n} trade(s) from the optimal plan — change one '
+                      f'and evaluate.', type='positive', position='top')
+        else:
+            ui.notify('The optimal plan has no trades to copy.',
+                      type='warning', position='top')
+
+    async def _on_whatif_do_nothing(self, *_) -> None:
+        """Price the empty plan.
+
+        This empties the route first, on purpose: what is priced is always
+        what is in the list, and a cost sitting above trades it was not
+        computed from is exactly the kind of quiet lie this feature exists
+        to avoid.
+        """
+        if self.state.manual_trades:
+            ui.notify('Trade list cleared — pricing the do-nothing plan.',
+                      type='info', position='top')
+        self.state.clear_manual(keep_trades=False)
+        self._render_entered_trades()
+        await self._evaluate_whatif()
+
+    async def _on_whatif_evaluate(self, *_) -> None:
+        await self._evaluate_whatif()
+
+    async def _evaluate_whatif(self) -> None:
+        """Price the route and render the comparison.
+
+        No solver runs and the ``CashManager`` is not rebuilt, so the
+        optimiser's plan stays valid beside this one.  Rebuilding the
+        manager between the two evaluations is precisely what would break
+        the guarantee that a cost difference is a plan difference.
+        """
+        if self.state.cash_manager is None:
+            return
+
+        self._hide_error()
+        self.state.is_loading = True
+        self._update_whatif_btn_state()
+
+        try:
+            await run.io_bound(self.state.evaluate_manual)
+            self._render_whatif_results()
+
+            v = self.state.get_manual_verdict()
+            n = len(self.state.manual_violations)
+            ui.notify(
+                f'Route priced — value impact {v["manual_impact"]:,.2f}'
+                + (f', {n} rule(s) broken' if n else ''),
+                type='warning' if n else 'positive', position='top',
+            )
+        except Exception as exc:
+            log.exception('What-if evaluation failed')
+            self.state.clear_manual()
+            self._render_whatif_results()
+            self._show_error(f'Could not price that route: {exc}')
+            ui.notify(str(exc), type='negative', position='top', multi_line=True,
+                      classes='whitespace-pre-line')
+        finally:
+            self.state.is_loading = False
+            self._update_whatif_btn_state()
             self._update_generate_btn_state()
             self._update_load_btn_state()
 
@@ -912,6 +1447,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         # Stale optimal results are no longer valid
         self.state.optimal_result = None
         self.refs.results_section.classes(add='hidden')
+        # ...and neither is a what-if plan priced against the old ladder.
+        if self._invalidate_whatif():
+            ui.notify('The what-if price was cleared — the ladder changed '
+                      'under it. Evaluate again.', type='info', position='top')
 
         # Rebuild the ledger from the manager's updated cash_ladder.
         # NOTE: any unsaved cell edits are discarded — they are only
@@ -959,6 +1498,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             mgr._optimal_result = None
         self.state.optimal_result = None
         self.refs.results_section.classes(add='hidden')
+        # The rule set just changed, so the violation list attached to any
+        # priced what-if plan is describing a policy that is no longer in
+        # force.  Drop the price; keep the route.
+        self._invalidate_whatif()
 
         ui.notify(
             f'Speculative-holding limit {"ON" if new_value else "OFF"}. '
@@ -998,7 +1541,16 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.edit_dialog_save_btn.on_click(self._on_edit_save)
         self.refs.edit_dialog_input.on('keydown.enter', self._on_edit_save)
 
+        # What-if section
+        self.refs.whatif_add_btn.on_click(self._on_whatif_add)
+        self.refs.whatif_amount_input.on('keydown.enter', self._on_whatif_add)
+        self.refs.whatif_evaluate_btn.on_click(self._on_whatif_evaluate)
+        self.refs.whatif_copy_btn.on_click(self._on_whatif_copy_optimal)
+        self.refs.whatif_donothing_btn.on_click(self._on_whatif_do_nothing)
+        self.refs.whatif_clear_btn.on_click(self._on_whatif_clear)
+
         # Set initial button states
         self._update_load_btn_state()
         self._update_generate_btn_state()
+        self._update_whatif_btn_state()
 

@@ -71,5 +71,21 @@ class CashManagementRefs:
     # Cost breakdown
     cost_breakdown_container: ui.column
 
+    # ── What-if section (own section; visible once a scenario loads,
+    #    with or without an optimizer plan to compare against) ──
+    whatif_section: ui.element
+    whatif_ccy_select: ui.select
+    whatif_day_select: ui.select
+    whatif_tenor_select: ui.select
+    whatif_direction_select: ui.select
+    whatif_amount_input: ui.number
+    whatif_add_btn: ui.button
+    whatif_trades_container: ui.element
+    whatif_evaluate_btn: ui.button
+    whatif_copy_btn: ui.button
+    whatif_donothing_btn: ui.button
+    whatif_clear_btn: ui.button
+    whatif_results_container: ui.column
+
     # ── Error display ──────────────────────────────────────────
     error_label: ui.label

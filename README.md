@@ -58,7 +58,7 @@ for sc in load_library():
 ### Tests
 
 ```bash
-python3 -m unittest discover -s tests -v      # 116 cases, ~15 seconds
+python3 -m unittest discover -s tests -v      # 145 cases, ~15 seconds
 ```
 
 ### Web page
@@ -71,6 +71,24 @@ A NiceGUI page that steps through the scenario library one at a time, lets you e
 projected balances in place, re-runs the optimiser, and shows the plan with a cost
 breakdown that carries the arithmetic behind every line. Hovering a rate shows what it
 is worth in basis points per day.
+
+The **What-If** section prices a route you enter by hand against the same ladder and
+the same cost model, with no solver run, and reads it line by line against the
+optimiser's plan. Because both plans are priced by the same code, a difference in the
+cost is a difference in the plan rather than in how it was measured, and the per-line
+difference tells you *where* the money went.
+
+It leads with the rule rather than the number. `execute_trades` prices whatever it is
+handed and checks only currency, tenor, horizon and size, so a hand plan can take
+routes the optimiser was forbidden to consider and appear to beat it — and since the
+constraints exist to forbid profitable speculation, that is the usual way it wins. A
+saving obtained by breaking a rule is shown as **void**, with the rule named. A route
+that is cheaper with nothing broken gets a third verdict, because against a true
+optimum that should be impossible and the baseline is then the thing to doubt.
+
+No optimiser plan is required. The section appears as soon as a scenario loads, and
+on a scenario the solver calls `Infeasible` — S16 — pricing a hand plan is the only
+way to see what the binding constraint costs.
 
 ## Requirements
 

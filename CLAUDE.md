@@ -9,7 +9,7 @@ cash flows per currency over a short day-indexed horizon, it solves an LP/MIP (P
 for the cheapest set of FX trades that clears every debit, then reports the plan as
 formatted terminal tables.
 
-There is no README, no lint config and no packaging metadata. The only third-party
+There is no lint config and no packaging metadata. The only third-party
 dependency is `pulp` (which bundles CBC); `highspy` is optional but strongly
 preferred — see the solver note under Gotchas.
 
@@ -22,7 +22,12 @@ undo any one of them individually.
 python -m unittest discover -s tests -v    # from the repository root
 ```
 
-118 cases, ~15 seconds. Most classes map to a finding from the model audit.
+145 cases, ~15 seconds, across two files. `tests/test_cash_optimizer.py` covers the
+model; most of its classes map to a finding from the model audit.
+`tests/test_whatif_page.py` covers `CashManagementState`, which is the page's logic
+and is deliberately free of any NiceGUI dependency, so the what-if feature is
+testable without a browser or a running server.
+
 `TestKnownOpenFindings` is now empty — it held tests asserting behaviour that was
 still broken on purpose, so that fixing one would fail loudly; every finding it
 tracked has since been fixed. Keep the class: it is where the next known-broken
@@ -111,6 +116,46 @@ amount converted per currency, so 100,000 base is 126,582 dollars, not 100,000.
 
 The web page steps through the library in order: the load button advances one place and
 wraps at the end, and typing an id (`S07`) or a position (`7`) jumps there instead.
+
+### What-if: pricing a hand-entered route
+
+The page's What-If section takes a route entered by hand, prices it, and reads it
+against the optimiser's plan. `CashManager.execute_trades` does the pricing and no
+solver runs, so the suggested plan stays valid beside it.
+
+**Both plans reach `CashManager._compute_cost` over the same ladder**, which is the
+only reason the comparison is worth anything: a difference in the reported cost is a
+difference in the plan and never a difference in how it was measured. Rebuilding the
+`CashManager` between the two evaluations is what would break that, so nothing does.
+
+Three things are load-bearing:
+
+- **A cheaper hand plan has almost always broken a rule.** `execute_trades` prices
+  whatever it is given and checks only currency, tenor, horizon and size — not the
+  holding ceiling, the terminal sweep, the minimum ticket or `no_loop`. Since the
+  constraints exist precisely to forbid profitable speculation, breaking one is the
+  usual way a manual plan wins. `constraint_violations()` therefore runs on every
+  evaluation and the verdict leads with the rule: a saving that came from breaking one
+  is labelled **void**, not shown in green. S07 is the case to look at — hold the
+  dollar credit to the last day instead of sweeping on day 2 and the plan "gains"
+  475.43, all of it carry.
+- **Cheaper with nothing broken is a third verdict, not a saving either.** Against a
+  true optimum it cannot happen, so it indicts the baseline rather than the route —
+  CBC returns provably sub-optimal plans here and labels them `Optimal`. That case
+  gets an amber banner naming the solver, and is why `Result.optimality_unproven`
+  is read on the page.
+- **A baseline is useful, never a precondition.** The section appears on scenario load,
+  not after a solve. `Result.status == 'Infeasible'` carries `total_cost=None` and no
+  balances, so `has_baseline` gates the *delta*, not the feature: on S16 the hand plan
+  still prices, and its violation list names the minimum-ticket rule that made the
+  scenario infeasible in the first place.
+
+Staleness is the easiest way for this to lie, so a priced plan is discarded whenever
+the ladder, the constraint flags or the scenario move under it. The entered **trades**
+survive that (re-pricing is one click); only a scenario load clears them too, since
+the currencies and horizon change there. What is priced is always what is in the
+list — which is why "Price doing nothing" empties the list rather than pricing past
+it.
 
 ## Architecture
 

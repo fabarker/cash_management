@@ -317,6 +317,106 @@ def build_view() -> CashManagementRefs:
             margin-bottom: 4px;
         }
 
+        /* ─── What-if: entry, verdict, comparison ─── */
+        .whatif-entry {
+            background-color: #f8f9fa;
+            border: 1px solid #e4e7ea;
+            border-radius: 6px;
+            padding: 14px 18px 6px 18px;
+            margin-bottom: 16px;
+        }
+
+        /* Entered trades — indigo accent, distinct from the green the
+           optimiser's own trades use, so the two tables never read as
+           the same plan. */
+        .entered-table .table-header-row {
+            background: linear-gradient(180deg, #3f51b5 0%, #32408f 100%);
+        }
+        .entered-table .table-header-cell {
+            border-right-color: rgba(255,255,255,0.12);
+            border-bottom-color: #283593;
+        }
+        .entered-table { width: auto; }
+
+        /* The verdict banner.  Colour carries the meaning here, so the
+           four states are visually separate: a void saving must not read
+           like a real one. */
+        .verdict {
+            border-radius: 6px;
+            padding: 15px 20px;
+            margin-bottom: 18px;
+            border-left: 5px solid;
+        }
+        .verdict-headline {
+            font-size: 17px;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: 0.1px;
+        }
+        .verdict-sub {
+            font-size: 13px;
+            margin-top: 5px;
+            opacity: 0.92;
+        }
+        .verdict-rule {
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 12px;
+            margin-top: 9px;
+            padding: 7px 11px;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.055);
+            white-space: pre-wrap;
+        }
+        .verdict.ok   { background:#eef5ee; border-color:#2e7d32; color:#1b5e20; }
+        .verdict.info { background:#eef2f7; border-color:#1F3864; color:#1c2b36; }
+        .verdict.void { background:#fdecec; border-color:#c62828; color:#8e1f1f; }
+        .verdict.warn { background:#fff6e5; border-color:#b26a00; color:#7a4a00; }
+
+        .verdict-chip {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            padding: 3px 9px;
+            border-radius: 3px;
+            margin-left: 12px;
+            vertical-align: 2px;
+            background: rgba(0,0,0,0.10);
+        }
+
+        /* Side-by-side cost and ladder tables */
+        .compare-table { width: auto; }
+        .compare-table .table-header-row {
+            background: linear-gradient(180deg, #5c6bc0 0%, #48549b 100%);
+        }
+        .compare-table .table-header-cell {
+            border-right-color: rgba(255,255,255,0.12);
+            border-bottom-color: #3949ab;
+        }
+        .compare-table .plan-cell {
+            text-align: left !important;
+            font-weight: 600;
+            color: #495057 !important;
+            background-color: transparent !important;
+        }
+        .compare-table .delta-pos { color:#2e7d32; font-weight:600; }
+        .compare-table .delta-neg { color:#c62828; font-weight:600; }
+        .compare-table .row-delta .table-data-cell {
+            border-bottom: 2px solid #d0d4d8;
+            font-style: italic;
+        }
+        .compare-table .muted-cell { color:#adb5bd; font-weight:400; }
+
+        .workings-line {
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 11.5px;
+            color: #6c757d;
+            padding: 3px 0 3px 18px;
+            word-break: break-word;
+        }
+        .workings-line.stale { color: #b26a00; }
+
         /* ─── Editable projections ─── */
         .projections-clickable td {
             cursor: pointer;
@@ -504,6 +604,79 @@ def build_view() -> CashManagementRefs:
                 with ui.column().classes('w-full') as cost_breakdown_container:
                     pass  # Populated by controller
 
+            # ── What-if (revealed on scenario load, not on solve) ──
+            # This sits outside ``results_section`` deliberately.  The
+            # optimiser's plan is a useful baseline, not a precondition:
+            # pricing a hand-entered route is worth doing with no baseline
+            # at all, and most of all on a scenario the solver calls
+            # Infeasible, where it is the only way to see what the binding
+            # constraint costs.
+            with ui.element('div').classes('card-section hidden') as whatif_section:
+                ui.separator().style('margin: 0 0 24px 0;')
+                ui.label('What-If — Price Your Own Route').classes('card-section-title')
+                ui.label(
+                    'Enter a route by hand and price it on the same ladder, '
+                    'against the same cost model, as the optimiser. Nothing is '
+                    're-solved — the suggested plan above stays as it is.'
+                ).style('font-size: 13px; color: #6c757d; margin-bottom: 14px;')
+
+                with ui.element('div').classes('whatif-entry'):
+                    with ui.row().classes('items-start gap-3 flex-wrap'):
+                        whatif_ccy_select = (
+                            ui.select(options=[], label='Currency')
+                            .props('outlined dense').style('width: 135px;')
+                        )
+                        whatif_day_select = (
+                            ui.select(options=[], label='Day')
+                            .props('outlined dense').style('width: 105px;')
+                        )
+                        whatif_tenor_select = (
+                            ui.select(options=[], label='Tenor')
+                            .props('outlined dense').style('width: 115px;')
+                        )
+                        whatif_direction_select = (
+                            ui.select(options=['BUY', 'SELL'], value='BUY',
+                                      label='Direction')
+                            .props('outlined dense').style('width: 130px;')
+                        )
+                        whatif_amount_input = (
+                            ui.number(label='Amount (foreign)', format='%.2f')
+                            .props('outlined dense').style('width: 200px;')
+                        )
+                        whatif_add_btn = (
+                            ui.button('Add trade', icon='add')
+                            .props('unelevated color=primary')
+                            .style('height: 40px; margin-top: 2px;')
+                        )
+
+                # Entered but not yet priced — the controller rebuilds this
+                # from state on every change, remove buttons and all.
+                whatif_trades_container = ui.element('div').classes(
+                    'w-full overflow-x-auto'
+                )
+
+                with ui.row().classes('items-center gap-3').style('margin-top: 14px;'):
+                    whatif_evaluate_btn = (
+                        ui.button('Evaluate my route', icon='calculate')
+                        .props('unelevated color=primary').style('height: 42px;')
+                    )
+                    whatif_copy_btn = (
+                        ui.button('Copy optimal plan', icon='content_copy')
+                        .props('outline color=primary').style('height: 42px;')
+                    )
+                    whatif_donothing_btn = (
+                        ui.button('Price doing nothing', icon='block')
+                        .props('outline color=primary').style('height: 42px;')
+                    )
+                    whatif_clear_btn = (
+                        ui.button('Clear', icon='clear')
+                        .props('flat color=grey').style('height: 42px;')
+                    )
+
+                whatif_results_container = (
+                    ui.column().classes('w-full').style('margin-top: 20px;')
+                )
+
     return CashManagementRefs(
         group_number_input=group_number_input,
         load_btn=load_btn,
@@ -539,5 +712,18 @@ def build_view() -> CashManagementRefs:
         after_trade_table_wrapper=after_trade_table_wrapper,
         after_trade_table_rows=after_trade_table_rows,
         cost_breakdown_container=cost_breakdown_container,
+        whatif_section=whatif_section,
+        whatif_ccy_select=whatif_ccy_select,
+        whatif_day_select=whatif_day_select,
+        whatif_tenor_select=whatif_tenor_select,
+        whatif_direction_select=whatif_direction_select,
+        whatif_amount_input=whatif_amount_input,
+        whatif_add_btn=whatif_add_btn,
+        whatif_trades_container=whatif_trades_container,
+        whatif_evaluate_btn=whatif_evaluate_btn,
+        whatif_copy_btn=whatif_copy_btn,
+        whatif_donothing_btn=whatif_donothing_btn,
+        whatif_clear_btn=whatif_clear_btn,
+        whatif_results_container=whatif_results_container,
         error_label=error_label,
     )

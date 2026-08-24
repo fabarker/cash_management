@@ -17,6 +17,11 @@ the tests and reverting only the source is deliberate: **the tests for the
 reverted fix will then fail, and their names tell you exactly what behaviour
 you gave up.** That is the point. Delete them once you have read them.
 
+That reasoning is specific to the fixes below, which share one test file.
+It does not apply to a commit that brings its own — the what-if page feature
+owns `tests/test_whatif_page.py` outright, so reverting it should take the
+file with it rather than leave 29 tests asserting a feature that is gone.
+
 Verified: the source reverts cleanly for four of the five below. The
 exception is noted.
 
