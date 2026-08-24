@@ -163,14 +163,15 @@ SCENARIOS = [
     ),
     scenario(
         "S06", "Thin base balance",
-        "Payables are covered, but only just. Very little sterling headroom, "
-        "so the overdraft rate on the base account starts to matter.",
+        "Payables are covered, but only just. Very little euro headroom, so "
+        "how far the base account can be drawn down starts to matter.",
         "EUR", ["USD", "CHF"], 6,
         {"EUR": 210_000.0, "USD": 0.0, "CHF": 240_000.0},
         [("USD", 3, -280_000.0), ("CHF", 5, -160_000.0)],
         commission="three_tier",
-        expectation="The Swiss holding is used before anything is bought. "
-                    "Watch the base balance for a shallow overdraft.",
+        expectation="The Swiss holding is used before anything is bought, "
+                    "and the euro base runs down to about 35,000 without "
+                    "ever going overdrawn.",
     ),
     scenario(
         "S07", "Dollar carry temptation",
@@ -409,42 +410,49 @@ SCENARIOS = [
 # description of the cost model.
 COST_REASONING = {
     "S01":
-        "Pure dealing cost: 20bps on the first 500,000 and 10bps above it, "
-        "plus the half-spread — about 1,136 all in. Nothing accrues either "
-        "way because the dollars land on the day they are paid away. Buying "
-        "earlier would add exposure at 1bp/day and buy nothing.",
+        "Pure dealing cost: 20bps on the first 500,000 and 10bps above it "
+        "is 987.75, and the half-spread against spot mid another 148.13. The "
+        "dollars settle on day 2 against a day-4 payment, so two days of "
+        "dollar credit come back at 9.80 and the plan lands at 1,126.07. "
+        "Dealing earlier buys nothing: the ticket costs the same and the "
+        "holding corridor will not open the position before day 2 anyway.",
     "S02":
         "Institutional pricing of 5bps then 2bps makes dealing cheap enough "
         "that there is no reason to bundle the three legs. Each is funded in "
-        "its own settlement window: pre-buying would earn foreign credit "
-        "below the dollar base rate and pay 1bp/day of exposure for nothing.",
+        "its own settlement window: pre-buying would swap the dollar base's "
+        "1.0417bps/day of credit for a lower foreign rate — sterling 0.9589, "
+        "the euro 0.4583, the franc 0.0139 — and buy nothing with the loss.",
     "S03":
-        "The overdraft runs at 1.39bps/day against 20bps to clear it, so on "
-        "carry alone it would take about a fortnight of overdraft to justify "
-        "the trade. The horizon is six days — the terminal sweep is what "
+        "The overdraft runs at 1.7361bps/day (6.25% on a 360-day basis) "
+        "against 20bps to clear it, so on carry alone it would take about "
+        "twelve days of overdraft to justify the trade. The horizon is six days — the terminal sweep is what "
         "forces the deal, and the only real choice left is the tenor.",
     "S04":
         "Holding the earmarked 950,000 is cheap: the dollar pays 3.75% "
-        "against sterling's 3.50%, so the differential earns about 28, "
-        "against 150 of exposure at 1bp/day. Selling and rebuying would cost "
-        "20bps twice, near 1,500. Keeping it is obvious; only the surplus is "
-        "swept.",
+        "against sterling's 3.50%, so the differential earns 27.78 over the "
+        "three days it is held and nothing charges the position for existing. "
+        "Selling it and buying it back would cost 20bps a leg, about 1,500 "
+        "base each way. Keeping it is obvious; only the 450,000 surplus is "
+        "swept, for 710.84 of commission and 82.86 of spread.",
     "S05":
-        "Funding the 1.6m euro gap outright costs roughly 2,700 in commission "
-        "plus spread. Running the overdraft instead costs 1.15bps/day, about "
-        "472 across the gap. The overdraft wins, and only the residual left "
+        "Funding the 1.6m euro gap outright costs about 2,130 — 1,792 of "
+        "commission and 341 of spread. Running the overdraft instead costs "
+        "1.1528bps/day, 472.28 across the gap. The overdraft wins, and only the residual left "
         "after the receipt is dealt.",
     "S06":
         "With base thin, the Swiss balance is worth more used than swept — "
         "spending it avoids a 35bps first-tier commission on the same money "
-        "twice over. What is left is a shallow euro overdraft, which is "
-        "cheaper per day than dealing again.",
+        "twice over. The euro base is drawn down to about 35,000 but never "
+        "goes overdrawn, so no debit carry is charged at all: the cost is "
+        "1,155 of commission and 86 of spread, against 30 of credit "
+        "differential given up by sitting in francs rather than euros.",
     "S07":
         "The dollar pays 6.40% against sterling's 3.50%, so 2.5m dollars "
-        "earn about 0.82bps/day — 336 across the ladder. That is the "
-        "temptation. Sweeping costs 624 of commission and 161 of spread. "
-        "Turn the holding limit off and cost falls by around 158: the carry "
-        "collected, net of the exposure charge. That fall is the speculation.",
+        "earn 0.8189bps/day — 333.13 across the ladder. That is the "
+        "temptation. Sweeping costs 624.05 of commission and 160.79 of "
+        "spread, for 451.71 all in. Turn the holding limit off and the cost "
+        "falls by 475.43, from 451.71 to -23.72: the plan stops costing "
+        "money and starts making it. That fall is the speculation.",
     "S08":
         "A flat 12bps removes the tier structure, so the schedule no longer "
         "decides anything and the tenor is chosen on carry and spread alone. "
@@ -456,14 +464,15 @@ COST_REASONING = {
         "first 500,000, 10bps on the remainder, plus the half-spread.",
     "S10":
         "Selling the receipt forward to settle the day it lands means it is "
-        "never held, so it accrues neither carry nor exposure and the cost "
-        "is one commission plus the half-spread. Holding it would earn the "
+        "never held, so it accrues no carry at all and the cost is one "
+        "commission plus the half-spread. Holding it would earn the "
         "euro/franc differential, but the sweep forbids finishing long.",
     "S11":
         "Four currencies, one schedule. The euro opening credit is spent "
-        "rather than swept because using it avoids paying 20bps on the same "
-        "money twice. The dollar overdraft is cured early because 1.39bps/day "
-        "compounds across the whole ladder while the commission is paid once.",
+        "rather than swept because using it avoids paying the 35bps first "
+        "band on the same money twice. The dollar overdraft is cured early "
+        "because 1.7361bps/day compounds across the whole ladder while the "
+        "commission is paid once.",
     "S12":
         "Sterling and the euro both yield less than the dollar base, so there "
         "is no carry reason to hold either. Every leg is funded as late as "
@@ -486,19 +495,22 @@ COST_REASONING = {
         "optimiser dealing more often than it needs to.",
     "S16":
         "No cost at all, because no legal plan exists. 12,000 dollars are "
-        "needed and the desk will not quote below 500,000; dealing the "
-        "minimum would leave 488,000 unwanted dollars, which the holding "
-        "limit forbids. Infeasible is the correct answer, not a defect.",
+        "needed and the desk will not quote below 500,000 base — which is "
+        "632,911 dollars once converted, not 500,000, and that conversion is "
+        "the whole point of S25. Dealing the minimum would leave 620,911 "
+        "unwanted dollars, which the holding limit forbids. Infeasible is "
+        "the correct answer, not a defect.",
     "S17":
         "Retail pricing dominates everything else: 60bps on the first "
         "100,000, 35bps to a million and 20bps above brings commission to "
         "about 3,750 on a 1.15m payment — roughly 33bps blended. The wide "
-        "spread adds 850 more. Carry and exposure net to under 20 between "
-        "them, so the schedule alone decides the answer.",
+        "spread adds 852 more, and two days of dollar credit against the "
+        "euro base come back at 124. The schedule alone decides the answer.",
     "S18":
-        "Three overdrafts, each cured once. Clearing them costs 20bps a "
-        "time; leaving them costs between 1.25 and 1.39bps/day. Over a "
-        "seven-day ladder the overdrafts are cheaper on carry, so it is the "
+        "Three overdrafts, each cured once. Clearing them costs 20bps on "
+        "the first 500,000 and 10bps above; leaving them costs between "
+        "0.625bps/day on the franc and 1.6438 on sterling. Over a six-day "
+        "ladder the overdrafts are far cheaper on carry, so it is the "
         "terminal sweep rather than the economics that forces the trades.",
     "S19":
         "Netting the week to −500,000 would suggest one late trade. The "
@@ -540,9 +552,9 @@ COST_REASONING = {
         "a currency out on.",
     "S20":
         "Both payments are still made, and sterling carries the deficit: "
-        "9.7m overdrawn balance-days at 1.64bps/day, about 1,590. That the "
+        "6.5m overdrawn balance-days at 1.6438bps/day, 1,065.14. That the "
         "plan looks affordable in commission terms is beside the point — the "
-        "terminal base equivalent is −3.2m, and that is the real answer.",
+        "terminal base equivalent is −3.18m, and that is the real answer.",
 }
 
 for _sc in SCENARIOS:
