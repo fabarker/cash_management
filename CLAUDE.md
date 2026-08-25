@@ -283,9 +283,25 @@ which returns `None` for absent keys — much of the code branches on that.
 ### Constraint toggles
 
 `ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which takes a
-copy) switches off `terminal_sweep`, `no_loop`, `holding_ceiling`, and
-`settle_on_need_only` — the last being a tightening *of* the holding ceiling rather
-than a rule of its own, and inert while `holding_ceiling` is off. Balance evolution,
+copy) switches `terminal_sweep`, `no_loop`, `holding_ceiling`, `settle_on_need_only`
+and `sweep_opening_surplus`. The fourth is a tightening *of* the holding ceiling rather
+than a rule of its own, and inert while `holding_ceiling` is off.
+
+**`sweep_opening_surplus` (default off) is the only rule that constrains a trade rather
+than a balance.** Everything else forbids things by making a balance impossible; this one
+forces a sale to exist. It exists because the corridor is not time-consistent: its deadline
+is measured from today, so a plan can say "sell in two days" every morning and never sell —
+and deferring is strictly cheaper than committing, so the model defers every time. Forcing
+the position out through the ceiling instead (a grace of zero) would demand same-day
+settlement, removing the tenor choice and going infeasible against a desk with no T+0. Only
+day 0 is constrained, deliberately: a receipt landing past the grace window is swept by the
+ceiling on arrival, and one landing inside it becomes *today's* opening balance at the next
+re-plan. Extending it over later days was measured and changes nothing a rolling process
+executes — see `docs/sweeping-the-surplus.html`. It shares `_earmark_profile` with
+`_holding_ceiling` rather than computing its own, because the two must agree on what
+"spoken for" means or the sweep forces a sale of money the ceiling is permitting.
+
+Balance evolution,
 balance decomposition, activation linking and commission-tier linking are structural
 and always applied.
 

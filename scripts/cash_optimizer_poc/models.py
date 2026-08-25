@@ -32,7 +32,9 @@ class ConstraintFlags:
     """
     Toggle individual optimizer constraints on or off.
 
-    All flags default to ``True`` (active).  Structural constraints
+    All flags default to ``True`` (active) except
+    ``sweep_opening_surplus``, which is an addition rather than one of the
+    standing rules.  Structural constraints
     (balance evolution, balance decomposition, activation linking,
     commission-tier linking) are always active — they define the model
     mechanics and cannot be disabled.
@@ -86,12 +88,42 @@ class ConstraintFlags:
         plans change and every one of them pays back the carry it used to
         collect -- and a minimum ticket is likelier to be infeasible,
         because a surplus has no neighbouring day left to sit in.
+    sweep_opening_surplus : bool
+        Force foreign credit that is on the books today and spoken for by
+        nothing to be **dealt** today, at any tenor.  Off by default.
+
+        The holding ceiling says when a position must be *gone*, not when the
+        decision must be *made*, and its deadline is measured from today.  So
+        a plan can say "sell in two days" and, re-planned tomorrow, say it
+        again -- rolling a book forward and following each morning's plan, the
+        position is never sold.  Deferring is strictly cheaper than
+        committing, so the model defers every time.
+
+        This constrains the trade rather than the balance, which is what
+        breaks the loop: once contracted, tomorrow's plan has nothing left to
+        defer.  The tenor stays free, so it is much cheaper than forcing the
+        same outcome through the ceiling, which would demand same-day
+        settlement and is infeasible against a desk that does not quote T+0.
+
+        Only day 0 is constrained, deliberately.  A receipt landing beyond
+        the grace window is swept by the ceiling on the day it arrives; one
+        landing inside the window becomes *today's* opening balance at the
+        next re-plan, where this rule catches it.  Extending it over later
+        days was measured and changes nothing a rolling process would execute.
+
+        It stands down where the surplus is below the minimum ticket rather
+        than demanding a trade nobody can deal -- though that rarely rescues
+        anything, since the ceiling has usually made such a book infeasible
+        already.  It also assumes the process re-plans daily and that
+        contracted trades reach the next run's ladder; the optimiser has no
+        memory of them on its own.
     """
 
     terminal_sweep: bool = True
     no_loop: bool = True
     holding_ceiling: bool = True
     settle_on_need_only: bool = True
+    sweep_opening_surplus: bool = False
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -100,6 +132,7 @@ class ConstraintFlags:
             "no_loop": self.no_loop,
             "holding_ceiling": self.holding_ceiling,
             "settle_on_need_only": self.settle_on_need_only,
+            "sweep_opening_surplus": self.sweep_opening_surplus,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]

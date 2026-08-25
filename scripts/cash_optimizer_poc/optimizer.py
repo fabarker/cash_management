@@ -669,8 +669,41 @@ class CashOptimizer:
         ladder = self._do_nothing_ladder(ccy)
         hole = [max(0.0, -b) for b in ladder]
 
-        # Gross outflows still ahead of each day: what a holding could
-        # legitimately still be spent on.
+        earmark = self._earmark_profile(ccy)
+
+        ceiling: List[float] = []
+        for d in range(horizon):
+            to_acquire = max(hole[d:min(d + reach + 1, horizon)])
+            cap = to_acquire + earmark[d]
+            if d < max_lag:
+                cap = max(cap, ladder[d])
+            ceiling.append(cap)
+        return ceiling
+
+    def _earmark_profile(self, ccy: str) -> List[float]:
+        """How much of what the account was *given* is spoken for, day by day.
+
+        The smaller of two figures, and both caps carry their weight.
+
+        Capped by **outflows still ahead**, so nothing can be earmarked
+        against a payment that will never be made.  Capped by **receipts
+        banked so far**, so the earmark cannot be used to manufacture a
+        position: before the money arrives it protects nothing, and no
+        amount of trading can inflate what the account was handed.
+
+        The received side deliberately does not net the outflows off.  Once
+        a payment has been funded by a purchase, the receipt that follows is
+        genuinely spare cash, and a measure that keeps subtracting the
+        already-settled debt reads it as zero and forces it to be swept and
+        rebought.
+
+        Shared by ``_holding_ceiling`` and ``_add_surplus_sweep`` rather than
+        written out twice.  The two rules have to agree on what "spoken for"
+        means or they contradict each other: the sweep would force a sale of
+        money the ceiling is simultaneously permitting the plan to hold.
+        """
+        horizon = self.cfg.horizon_days
+
         still_to_pay = [0.0] * horizon
         running = 0.0
         for d in range(horizon - 1, -1, -1):
@@ -679,14 +712,6 @@ class CashOptimizer:
                 running += -flow
             still_to_pay[d] = running
 
-        # Receipts banked by each day, including a positive opening balance.
-        # This is what the account was *given*, and no amount of trading can
-        # change it -- which is what stops the earmark below being used to
-        # manufacture a position.  It deliberately does not net the outflows
-        # off: once a payment has been funded by a purchase, the receipt that
-        # follows is genuinely spare cash, and a measure that keeps
-        # subtracting the already-settled debt reads it as zero and forces it
-        # to be swept and rebought.
         received = [0.0] * horizon
         running = max(0.0, self.opening.get(ccy, 0.0))
         for d in range(horizon):
@@ -695,15 +720,18 @@ class CashOptimizer:
                 running += flow
             received[d] = running
 
-        ceiling: List[float] = []
-        for d in range(horizon):
-            to_acquire = max(hole[d:min(d + reach + 1, horizon)])
-            earmarked = min(still_to_pay[d], received[d])
-            cap = to_acquire + earmarked
-            if d < max_lag:
-                cap = max(cap, ladder[d])
-            ceiling.append(cap)
-        return ceiling
+        return [min(still_to_pay[d], received[d]) for d in range(horizon)]
+
+    def day_zero_surplus(self, ccy: str) -> float:
+        """Foreign credit on the books today that nothing ahead will consume.
+
+        Measured against the do-nothing balance, **not** against cumulative
+        receipts.  A receipt that arrives to repay an overdraft is not spare
+        cash, and a measure built from receipts alone reads it as though it
+        were -- which forces the sale of money the account never had.
+        """
+        return max(0.0,
+                   self._do_nothing_ladder(ccy)[0] - self._earmark_profile(ccy)[0])
 
     @staticmethod
     def _tighten(var, upper: float) -> None:
@@ -763,6 +791,65 @@ class CashOptimizer:
                 ccy, [round(c, 2) for c in ceiling],
                 [round(-f, 2) for f in floor],
             )
+
+    def _add_surplus_sweep(self, prob: pulp.LpProblem) -> None:
+        """Deal today's unearmarked foreign credit **today**, at any tenor.
+
+        The holding ceiling says when a position must be *gone*, not when the
+        decision must be *made*, and its deadline is measured from today.  So
+        a plan can say "sell in two days", and tomorrow, re-planned, say the
+        same thing again.  Rolling a book forward and following each morning's
+        plan faithfully, the position is never sold -- and deferring is
+        strictly cheaper than committing, so the model defers every time.
+
+        This closes that by constraining the trade rather than the balance:
+        whatever is on the books today and spoken for by nothing must be
+        contracted away today.  Tomorrow's re-plan then has nothing left to
+        defer.
+
+        The **tenor stays free**, which is the whole point.  Forcing the
+        position out through the ceiling instead -- a grace of zero -- would
+        demand settlement on day 0 and therefore same-day dealing, which
+        removes the choice of tenor and is infeasible outright against a desk
+        that does not quote T+0.
+
+        Only day 0 is constrained.  Money arriving later needs no rule of its
+        own: a receipt landing beyond the grace window is swept by the ceiling
+        on the day it arrives, and one landing inside the window becomes
+        *today's* opening balance at the next re-plan, where this rule picks
+        it up.  A second constraint over later days was measured and changes
+        nothing a rolling process would execute.
+        """
+        for ccy in self.active_foreign_ccys:
+            surplus = self.day_zero_surplus(ccy)
+            if surplus <= self.cfg.trade_report_floor:
+                continue
+
+            floor = self.cfg.min_trade_in(ccy)
+            if floor and surplus < floor:
+                # Standing down rather than demanding a ticket nobody can
+                # deal.  Note this rarely rescues anything: a surplus too
+                # small to deal usually means the ceiling has already made
+                # the scenario infeasible on its own.
+                log.info(
+                    "Surplus sweep skipped for %s: %.2f is below the %.2f "
+                    "minimum ticket.", ccy, surplus, floor)
+                continue
+
+            sells = [self._total_sell(ccy, 0, tenor)
+                     for tenor in self.cfg.tenors
+                     if self._has_trade_vars(ccy, 0, tenor)]
+            sells = [s for s in sells if s is not None]
+            if not sells:
+                log.warning(
+                    "Surplus sweep cannot apply to %s: nothing is dealable on "
+                    "day 0. %.2f will be left to the holding ceiling.",
+                    ccy, surplus)
+                continue
+
+            prob += (pulp.lpSum(sells) >= surplus, f"sweepSurplus_{ccy}")
+            log.info("Surplus sweep for %s: %.2f must be dealt on day 0.",
+                     ccy, surplus)
 
     # ── Objective ──────────────────────────
 
@@ -997,6 +1084,10 @@ class CashOptimizer:
             self._add_holding_ceiling(prob)
         else:
             log.info("  SKIPPED: holding ceiling")
+        if flags.sweep_opening_surplus:
+            self._add_surplus_sweep(prob)
+        else:
+            log.info("  SKIPPED: opening-surplus sweep")
         prob += self._build_objective(), "TotalCost"
         self._prob = prob
 

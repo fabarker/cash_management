@@ -142,6 +142,13 @@ Four are switchable, on `Config.constraints`:
   two, each paying back exactly the carry the wider window collects. It is inert while
   `holding_ceiling` is off, and it narrows only the acquisition term — money the
   account was *given* is untouched, or a receipt would have to be sold and rebought.
+- **`sweep_opening_surplus`** forces foreign credit that is on the books today and spoken
+  for by nothing to be *dealt* today, at any tenor. Off by default. The ceiling says when a
+  position must be **gone**, not when the decision must be **made**, and its deadline is
+  measured from today — so a plan can say "sell in two days" every morning and never sell.
+  This constrains the trade instead of the balance, which breaks that loop. Only day 0 is
+  constrained: a receipt landing later is swept by the ceiling on arrival, or becomes
+  *today's* opening balance at the next re-plan.
 - **`terminal_sweep`** forces every foreign balance to zero on the last day.
 - **`no_loop`** forbids buying and selling one currency for the same settlement day. It
   looks inert — the objective rejects a wash trade at any spread — but it binds where
@@ -151,9 +158,9 @@ Four are switchable, on `Config.constraints`:
 
 `docs/holding-corridor.html` explains the ceiling, the floor and the grace period in plain
 English, with the arithmetic worked through on real scenarios — worth reading before
-changing any of them. `docs/sweeping-the-surplus.html` analyses a proposed addition: forcing
-unearmarked foreign credit to be *dealt* on day 0 at a free choice of tenor, which would close
-a time-consistency gap in the corridor. Both are single self-contained files; open them in a
+changing any of them. `docs/sweeping-the-surplus.html` is the analysis behind
+`sweep_opening_surplus` — why unearmarked foreign credit has to be *dealt* on day 0 rather than
+merely gone by some later day, and why constraining day 0 alone is sufficient. Both are single self-contained files; open them in a
 browser.
 
 Balance evolution, balance decomposition, activation linking and commission-tier linking

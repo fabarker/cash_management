@@ -853,6 +853,25 @@ class CashManager:
                             f"on day {b.day} against a ceiling of {cap:,.2f}")
                         break
 
+        if flags.sweep_opening_surplus:
+            optimizer = CashOptimizer(cfg, self._cashflows,
+                                      opening_balances=self._opening)
+            for ccy in optimizer.active_foreign_ccys:
+                surplus = optimizer.day_zero_surplus(ccy)
+                floor = cfg.min_trade_in(ccy)
+                if surplus <= cfg.trade_report_floor:
+                    continue
+                if floor and surplus < floor:
+                    continue
+                dealt = sum(t.amount for t in trades
+                            if t.ccy == ccy and t.day == 0
+                            and t.direction == Direction.SELL)
+                if dealt + 1e-6 < surplus:
+                    violations.append(
+                        f"sweep_opening_surplus: {ccy} has {surplus:,.2f} "
+                        f"unearmarked today but only {dealt:,.2f} is dealt on "
+                        f"day 0")
+
         if cfg.min_trade:
             for t in trades:
                 if t.amount + 1e-6 < cfg.min_trade_in(t.ccy):

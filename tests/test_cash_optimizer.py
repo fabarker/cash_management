@@ -1459,6 +1459,166 @@ class TestSettleOnNeedOnly(CostAssertions):
         self.assertIn("settle_on_need_only", ConstraintFlags().summary())
 
 
+class TestSweepOpeningSurplus(CostAssertions):
+    """``sweep_opening_surplus`` forces foreign credit that is on the books
+    today and spoken for by nothing to be **dealt** today, at any tenor.
+
+    The holding ceiling says when a position must be gone, not when the
+    decision must be made, and its deadline is measured from today -- so a
+    plan can say "sell in two days" every day and never sell.  This
+    constrains the trade instead of the balance, which is what breaks the
+    loop.  Off by default."""
+
+    # A flat forward curve isolates the carry: with no forward points to
+    # offset it, holding a higher-yielding currency is strictly better and
+    # the model defers the dealing decision.  On the shipped curve the
+    # points and the differential very nearly cancel, and the deferral the
+    # rule exists to stop does not appear at all.
+    FLAT = {c: {t: FXTenorQuote(bid=0.7895, ask=0.7905)
+                for t in ("T0", "T1", "T2")}
+            for c in ("USD", "EUR", "JPY")}
+    MKT = dict(credit_carry_pa={"GBP": 3.50, "USD": 6.40,
+                                "EUR": 0.2, "JPY": 0.01},
+               commission_tiers=[CommissionTier(1_000_000, 5.0),
+                                 CommissionTier(500_000_000, 2.0)],
+               fx_quotes=FLAT)
+
+    def _solve(self, on, flows, opening, horizon=6, **kw):
+        flags = ConstraintFlags(sweep_opening_surplus=on,
+                                terminal_sweep=kw.pop("terminal_sweep", True))
+        return solve(flows=flows, opening=opening, horizon=horizon,
+                     constraints=flags, **dict(self.MKT, **kw))
+
+    #: An opening credit of 2.5m against a trivial 50k obligation.
+    BOOK = ([("USD", 5, -50_000)], {"GBP": 5_000_000, "USD": 2_500_000})
+
+    def test_the_flag_defaults_off(self):
+        self.assertFalse(ConstraintFlags().sweep_opening_surplus)
+
+    def test_off_leaves_the_dealing_decision_for_a_later_day(self):
+        trade, = self._solve(False, *self.BOOK).trades
+        self.assertGreater(trade.day, 0,
+                           "without the rule the model defers the decision")
+
+    def test_on_forces_the_deal_onto_day_zero(self):
+        trade, = self._solve(True, *self.BOOK).trades
+        self.assertEqual(trade.day, 0)
+        self.assertEqual(trade.direction, Direction.SELL)
+        self.assertAlmostEqual(trade.amount, 2_450_000.0, places=2)
+
+    def test_the_tenor_is_left_free(self):
+        """The whole reason this is a rule about trades and not balances.
+
+        Forcing the same outcome through the ceiling -- a grace of zero --
+        would demand settlement on day 0 and therefore same-day dealing.
+        Here the model still reaches for the longest tenor.
+        """
+        trade, = self._solve(True, *self.BOOK).trades
+        self.assertEqual(trade.tenor, "T2")
+        self.assertEqual(trade.settle_day, 2)
+
+    def test_the_surplus_is_dealt_but_the_earmark_is_not(self):
+        # 2,500,000 held against a 50,000 obligation: 2,450,000 is spare and
+        # 50,000 is not.  The rule must not reach the earmarked part.
+        trade, = self._solve(True, *self.BOOK).trades
+        self.assertAlmostEqual(trade.amount, 2_450_000.0, places=2)
+
+    def test_a_fully_earmarked_opening_balance_is_untouched(self):
+        # Everything held is needed, so there is no surplus and no rule.
+        flows, opening = [("USD", 4, -900_000)], {"GBP": 5_000_000,
+                                                  "USD": 150_000}
+        loose = self._solve(False, flows, opening)
+        strict = self._solve(True, flows, opening)
+        self.assertEqual(plan_of(loose), plan_of(strict))
+        self.assertCostClose(strict.total_cost, loose.total_cost)
+
+    def test_it_stands_down_below_the_minimum_ticket(self):
+        """Rather than demand a ticket nobody could deal.
+
+        Note this rarely rescues a real book: a surplus too small to deal
+        usually means the holding ceiling has already made the scenario
+        infeasible without any help from this rule.  The grace spans this
+        two-day horizon and the sweep is off, so nothing else is pushing.
+        """
+        flows, opening = [], {"GBP": 5_000_000, "USD": 300_000}
+        forced = self._solve(True, flows, opening, horizon=2,
+                             terminal_sweep=False)
+        self.assertTrue(forced.trades, "with no minimum it deals the surplus")
+
+        stood_down = self._solve(True, flows, opening, horizon=2,
+                                 terminal_sweep=False, min_trade=1_000_000.0)
+        self.assertEqual(stood_down.status, "Optimal")
+        self.assertEqual(stood_down.trades, [],
+                         "a surplus below the minimum ticket forces nothing")
+
+    def test_a_receipt_becomes_todays_surplus_at_the_next_re_plan(self):
+        """Why constraining day 0 alone is enough.
+
+        A receipt landing tomorrow is not today's surplus, so the rule is
+        silent about it.  Roll the book forward and the same money is
+        today's opening balance, where the rule catches it -- which is why a
+        second constraint over later days changes nothing a rolling process
+        would actually execute.
+        """
+        opt = CashOptimizer(
+            Config(horizon_days=6, **self.MKT),
+            self._flows([("USD", 1, 900_000), ("USD", 5, -100_000)]),
+            opening_balances={"GBP": 5_000_000})
+        self.assertEqual(opt.day_zero_surplus("USD"), 0.0,
+                         "tomorrow's receipt is not today's surplus")
+
+        rolled = CashOptimizer(
+            Config(horizon_days=5, **self.MKT),
+            self._flows([("USD", 0, 900_000), ("USD", 4, -100_000)], 5),
+            opening_balances={"GBP": 5_000_000})
+        self.assertAlmostEqual(rolled.day_zero_surplus("USD"), 800_000.0,
+                               places=2)
+
+    def test_the_surplus_and_the_ceiling_share_one_earmark(self):
+        """They have to agree on what "spoken for" means.
+
+        If they drift, the sweep forces a sale of money the ceiling is
+        simultaneously permitting the plan to hold.  The cost model is
+        already written out in several places; this measure is not going to
+        become another one.
+        """
+        opt = CashOptimizer(
+            Config(horizon_days=6, **self.MKT),
+            self._flows([("USD", 5, -50_000)]),
+            opening_balances={"GBP": 5_000_000, "USD": 2_500_000})
+        ladder = opt._do_nothing_ladder("USD")
+        earmark = opt._earmark_profile("USD")
+        self.assertAlmostEqual(opt.day_zero_surplus("USD") + earmark[0],
+                               ladder[0], places=6)
+
+    def test_a_hand_plan_that_ignores_the_surplus_is_a_violation(self):
+        cfg = Config(horizon_days=6, constraints=ConstraintFlags(
+            sweep_opening_surplus=True), **self.MKT)
+        cf = self._flows([("USD", 5, -50_000)])
+        mgr = CashManager(cfg, cf, opening_balances={"GBP": 5_000_000,
+                                                     "USD": 2_500_000})
+        late = mgr.execute_trades(
+            [ManualTrade("USD", 2, "T0", Direction.SELL, 2_450_000.0)])
+        self.assertTrue(any("sweep_opening_surplus" in v
+                            for v in mgr.constraint_violations(late)),
+                        "the what-if page has to report this too")
+
+        today = mgr.execute_trades(
+            [ManualTrade("USD", 0, "T2", Direction.SELL, 2_450_000.0)])
+        self.assertFalse(any("sweep_opening_surplus" in v
+                             for v in mgr.constraint_violations(today)))
+
+    def test_the_flag_is_reported_in_the_summary(self):
+        self.assertIn("sweep_opening_surplus", ConstraintFlags().summary())
+
+    @staticmethod
+    def _flows(flows, horizon=6):
+        cf = CashFlowSet(horizon_days=horizon)
+        for ccy, day, amount in flows:
+            cf.add(ccy, day, amount)
+        return cf
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""

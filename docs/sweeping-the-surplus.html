@@ -378,9 +378,10 @@ footer p{max-width:72ch; margin:0 0 .6em}
   <div class="shell">
     <p class="kicker">Cash &amp; FX Optimiser &middot; Design Analysis</p>
     <h1>Sweeping the Surplus</h1>
-    <p class="standfirst">A proposed rule: unearmarked foreign credit must be <em>dealt</em> on day 0, at any
-    tenor. Should it cover only the opening balance, or later receipts too? Measured across the whole
-    scenario library and five purpose-built stress cases.</p>
+    <p class="standfirst">Unearmarked foreign credit must be <em>dealt</em> on day 0, at any tenor.
+    Should it cover only the opening balance, or later receipts too? Measured across the whole scenario
+    library and five purpose-built stress cases. <strong>Conclusion: the opening balance alone is
+    enough</strong>, and that is what shipped as <code>sweep_opening_surplus</code>.</p>
   </div>
 </header>
 
@@ -398,8 +399,8 @@ footer p{max-width:72ch; margin:0 0 .6em}
       <li><a href="#scope">Why B adds so little</a></li>
       <li><a href="#stress">Five stress cases</a></li>
       <li><a href="#minticket">The minimum-ticket decision</a></li>
-      <li><a href="#roll">Which one fixes the rolling problem</a></li>
-      <li><a href="#choose">How I would choose</a></li>
+      <li><a href="#roll">The rolling argument</a></li>
+      <li><a href="#choose">The decision</a></li>
     </ol>
   </nav>
 
@@ -426,9 +427,9 @@ footer p{max-width:72ch; margin:0 0 .6em}
 
       <li><span class="r-n">03</span><span>
         <span class="r-t">The cost is small and lands in one place</span>
-        <span class="r-d">S07 goes from 451.71 to 484.46 under either variant — the whole of the change,
-        and it buys the fix for the rolling problem. Everything else in the library is untouched or moves
-        by pennies.</span></span></li>
+        <span class="r-d">S07 goes from 451.71 to 484.46 — the whole of the change across the library,
+        and it buys the fix for the rolling problem. The trade keeps its size and settlement day; only its
+        dealing day moves to 0.</span></span></li>
 
       <li><span class="r-n">04</span><span>
         <span class="r-t">Variant B removes the one-dollar artefact on S04</span>
@@ -442,9 +443,12 @@ footer p{max-width:72ch; margin:0 0 .6em}
         standing down does not rescue it.</span></span></li>
 
       <li><span class="r-n">06</span><span>
-        <span class="r-t">Only variant B fully closes the rolling problem</span>
-        <span class="r-d">A fixes it for opening balances. A day-1 receipt would still be able to roll,
-        because it is the one case where money sits unearmarked with a deadline measured from today.</span></span></li>
+        <span class="r-t">Variant A is enough &mdash; the extra day closes itself</span>
+        <span class="r-d">A day-1 receipt can be deferred within a single day-0 plan, but only to day 1 —
+        and by then it is <em>today's</em> opening balance, where variant A catches it. Rolling the book
+        forward, both variants produce identical executed trades. This corrects an earlier version of this
+        page, which recommended B on the strength of a leak that does not survive contact with a daily
+        re-planning cycle.</span></span></li>
     </ol>
   </section>
 
@@ -714,7 +718,8 @@ footer p{max-width:72ch; margin:0 0 .6em}
 
   <!-- ══════════════════════════════════ -->
   <section id="roll">
-    <h2>Which one fixes the rolling problem</h2>
+    <h2>The rolling argument</h2>
+    <p class="dek">The one that settles it — and that overturned this page’s first conclusion.</p>
 
     <div class="scroll">
       <table>
@@ -727,17 +732,44 @@ footer p{max-width:72ch; margin:0 0 .6em}
       </table>
     </div>
 
-    <p>Variant A leaves one hole: a receipt landing on day 1 is unearmarked, gets a day of grace, and that
-    grace is measured from today. Re-plan tomorrow and the same receipt — now an opening balance — is
-    covered by variant A after all, so in practice it rolls once and is then caught.</p>
+    <p>The row that looks like a gap is not one. A receipt landing on day 1 can be deferred inside a
+    single day-0 plan — but only as far as day 1, because the ceiling takes over on day 2. And on day 1,
+    that receipt is <em>today's opening balance</em>, which is precisely what variant A constrains.</p>
 
-    <p>That is a much smaller leak than the opening-balance case, which rolls forever. But it is a leak,
-    and variant B closes it for the cost of 2.94 on one library scenario.</p>
+    <p>Rolling the book forward, the two variants produce the same executed trades:</p>
+
+    <div class="scroll">
+      <table>
+        <caption>Opening 600,000 (500,000 spare), a further 900,000 landing on day 1, 100,000 due on day 5</caption>
+        <thead><tr><th>Re-planning on</th><th>Surplus today</th><th>Variant A deals</th><th>Variant B deals</th></tr></thead>
+        <tbody>
+          <tr><td>original day 0</td><td class="num">500,000</td><td>1,400,000 on d0, T+2</td><td>1,400,000 on d0, T+2</td></tr>
+          <tr><td>original day 1</td><td class="num">1,400,000</td><td>1,400,000 on d0, T+2</td><td>1,400,000 on d0, T+2</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Identical, on both days. Once the receipt has landed it is part of the day-0 ladder, so variant A
+    picks it up on the day it arrives. The receipt gets one day of theoretical grace and none in practice.</p>
+
+    <div class="note affirm">
+      <p class="note-label">Which leaves variant B with nothing to do</p>
+      <p>Same executed trades, more constraints, and 2.94 more cost on S04. The three things B still offers
+      are forward visibility of a trade A leaves implicit, removal of the S04 one-dollar artefact (which a
+      minimum ticket fixes properly), and cover for a process that does not re-plan daily &mdash; and that
+      last one does not hold either, since a single week-long plan already has the ceiling forcing the
+      receipt out by day 2.</p>
+    </div>
+
+    <p>The argument rests on one assumption worth stating: <strong>the process re-plans every day, and
+    money that has arrived shows up in that day's opening ladder.</strong> If the feed lags a day, variant
+    A misses a surplus for a day &mdash; but so would variant B, built from the same stale data, so it is
+    not a reason to prefer one over the other.</p>
   </section>
 
   <!-- ══════════════════════════════════ -->
   <section id="choose">
-    <h2>How I would choose</h2>
+    <h2>The decision</h2>
 
     <p>Given how close the two are, the decision is not really about cost. It is about which rule is
     easier to explain and harder to get wrong.</p>
@@ -762,15 +794,27 @@ footer p{max-width:72ch; margin:0 0 .6em}
       </div>
     </div>
 
-    <p><strong>I would take variant B</strong>, on the grounds that the extra scope costs 2.94 across the
-    entire library and closes the rule's only remaining gap — and a rule with a known hole in it is harder
-    to reason about later than a rule without one. The measurement trap is a one-time implementation
-    risk, not an ongoing one, and it is now documented.</p>
+    <p><strong>Variant A, and it is what shipped.</strong> Once the rolling argument is taken into
+    account there is nothing left on the other side: the two produce the same executed trades, and A does
+    it with fewer constraints, less cost and a rule that fits in one sentence — <em>what you are holding
+    today that you do not need, you deal today</em>. It needs no clause about receipts, because tomorrow's
+    "today" handles tomorrow's receipts.</p>
 
-    <p>The case for A is real though, and it is about people rather than money: "sweep what you opened
-    with" is a sentence a treasurer can hold in their head, and it matches how a desk already thinks about
-    the start of the day. If this rule is going to be explained to anyone who does not read the model, that
-    is worth more than 2.94.</p>
+    <p>An earlier version of this page recommended B. That recommendation treated "can be deferred" and
+    "is deferred" as the same thing: a day-1 receipt can indeed be pushed within a single plan, but only
+    to day 1, at which point A owns it. The leak B was closing does not exist in a process that re-plans
+    each morning.</p>
+
+    <div class="note affirm">
+      <p class="note-label">What shipped</p>
+      <p><code>ConstraintFlags.sweep_opening_surplus</code>, off by default. It measures the day-0
+      surplus against the do-nothing balance, stands down where that surplus is below the minimum ticket,
+      and leaves the tenor entirely free. It shares its earmark measure with the holding ceiling rather
+      than computing its own — the two rules have to agree on what "spoken for" means, or the sweep would
+      force a sale of money the ceiling is simultaneously permitting the plan to hold.</p>
+      <p style="margin-bottom:0">Across the library it changes exactly one plan: S07, from 451.71 to
+      484.46. The trade keeps its size and its settlement day; only its dealing day moves to 0.</p>
+    </div>
 
     <div class="note caution">
       <p class="note-label">Whichever you pick, one thing has to be true around it</p>
