@@ -151,7 +151,10 @@ Four are switchable, on `Config.constraints`:
 
 `docs/holding-corridor.html` explains the ceiling, the floor and the grace period in plain
 English, with the arithmetic worked through on real scenarios — worth reading before
-changing any of them. Open it in a browser; it needs nothing else.
+changing any of them. `docs/sweeping-the-surplus.html` analyses a proposed addition: forcing
+unearmarked foreign credit to be *dealt* on day 0 at a free choice of tenor, which would close
+a time-consistency gap in the corridor. Both are single self-contained files; open them in a
+browser.
 
 Balance evolution, balance decomposition, activation linking and commission-tier linking
 are structural and always applied.

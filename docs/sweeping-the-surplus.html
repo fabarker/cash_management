@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sweeping the Surplus</title>
+<style>
+/* ============================================================
+   Tokens — light is the base definition, dark redefines only
+   the token values. Nothing below defines a colour outside
+   this block, so all three viewer states resolve as a set.
+   ============================================================ */
+:root{
+  --ground:#F7F8FA;
+  --surface:#FFFFFF;
+  --surface-2:#F1F3F6;
+  --sunk:#EAEDF1;
+  --ink:#16202B;
+  --ink-2:#414E5C;
+  --muted:#78848F;
+  --rule:#DDE2E8;
+  --rule-soft:#EBEEF2;
+  --accent:#1F4E79;
+  --accent-2:#3E7CB1;
+  --accent-soft:#E7EEF5;
+  --good:#1B6E3C;
+  --good-soft:#E6F1E9;
+  --warn:#8A5A00;
+  --warn-soft:#FAF0DC;
+  --bad:#A32020;
+  --bad-soft:#F8E7E7;
+  --shadow:0 1px 2px rgba(22,32,43,.05), 0 4px 12px rgba(22,32,43,.05);
+  --radius:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#12171D;
+    --surface:#1A2129;
+    --surface-2:#212A33;
+    --sunk:#0E1318;
+    --ink:#E4E9EE;
+    --ink-2:#B3BDC7;
+    --muted:#8592A0;
+    --rule:#2C3742;
+    --rule-soft:#232C35;
+    --accent:#7FB2DC;
+    --accent-2:#A8CBE8;
+    --accent-soft:#182734;
+    --good:#68C08C;
+    --good-soft:#14251B;
+    --warn:#D9A94E;
+    --warn-soft:#2A2113;
+    --bad:#E08585;
+    --bad-soft:#2C1717;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#12171D;
+  --surface:#1A2129;
+  --surface-2:#212A33;
+  --sunk:#0E1318;
+  --ink:#E4E9EE;
+  --ink-2:#B3BDC7;
+  --muted:#8592A0;
+  --rule:#2C3742;
+  --rule-soft:#232C35;
+  --accent:#7FB2DC;
+  --accent-2:#A8CBE8;
+  --accent-soft:#182734;
+  --good:#68C08C;
+  --good-soft:#14251B;
+  --warn:#D9A94E;
+  --warn-soft:#2A2113;
+  --bad:#E08585;
+  --bad-soft:#2C1717;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms !important; transition-duration:.001ms !important}
+}
+
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+              "Helvetica Neue", Arial, sans-serif;
+  font-size:16px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+
+.mono, code, .fig, td.num, th.num{
+  font-family:ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+              "Liberation Mono", monospace;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── Shell ───────────────────────────────────────────── */
+.shell{max-width:1180px; margin:0 auto; padding:0 24px}
+.masthead{
+  border-bottom:1px solid var(--rule);
+  background:var(--surface);
+}
+.masthead .shell{padding-top:44px; padding-bottom:36px}
+.kicker{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--accent); font-weight:600; margin:0 0 14px;
+}
+h1{
+  font-size:clamp(1.9rem, 3.6vw, 2.6rem);
+  line-height:1.12; letter-spacing:-.02em; font-weight:650;
+  margin:0 0 16px; text-wrap:balance; max-width:20ch;
+}
+.standfirst{
+  font-size:1.09rem; color:var(--ink-2); margin:0; max-width:66ch;
+}
+
+.layout{display:grid; grid-template-columns:236px minmax(0,1fr); gap:52px; align-items:start}
+@media (max-width: 900px){
+  .layout{grid-template-columns:1fr; gap:0}
+}
+
+/* ── Table of contents ───────────────────────────────── */
+.toc{position:sticky; top:24px; padding:32px 0 40px}
+@media (max-width: 900px){
+  .toc{position:static; padding:28px 0 8px; border-bottom:1px solid var(--rule)}
+}
+.toc h2{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; margin:0 0 14px;
+}
+.toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+.toc a{
+  display:block; padding:5px 10px; border-radius:4px;
+  color:var(--ink-2); text-decoration:none; font-size:.875rem; line-height:1.4;
+  border-left:2px solid transparent;
+}
+.toc a:hover{background:var(--surface-2); color:var(--ink); border-left-color:var(--accent-2)}
+.toc a:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+main{padding:36px 0 96px; min-width:0}
+
+/* ── Sections ────────────────────────────────────────── */
+section{margin:0 0 68px; scroll-margin-top:24px}
+section > h2{
+  font-size:1.52rem; line-height:1.2; letter-spacing:-.014em; font-weight:640;
+  margin:0 0 6px; text-wrap:balance; padding-top:22px;
+  border-top:2px solid var(--ink);
+}
+section > .dek{color:var(--muted); margin:0 0 26px; font-size:.97rem; max-width:64ch}
+h3{
+  font-size:1.09rem; font-weight:640; letter-spacing:-.006em;
+  margin:34px 0 10px; text-wrap:balance;
+}
+h4{font-size:.94rem; font-weight:650; margin:22px 0 8px; color:var(--ink)}
+p{margin:0 0 1.05em; max-width:72ch}
+ul,ol{max-width:72ch; padding-left:1.25em; margin:0 0 1.05em}
+li{margin-bottom:.5em}
+strong{font-weight:640}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+
+code{
+  background:var(--sunk); border:1px solid var(--rule-soft);
+  padding:.08em .34em; border-radius:3px; font-size:.86em;
+}
+
+/* ── Cards ───────────────────────────────────────────── */
+.card{
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:22px 24px; margin:0 0 20px;
+}
+.card > :last-child{margin-bottom:0}
+.card-title{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; margin:0 0 12px;
+}
+
+/* ── Callouts ────────────────────────────────────────── */
+.note{
+  border:1px solid var(--rule); border-left:4px solid var(--accent);
+  background:var(--accent-soft); border-radius:var(--radius);
+  padding:16px 20px; margin:0 0 20px;
+}
+.note.caution{border-left-color:var(--warn); background:var(--warn-soft)}
+.note.critical{border-left-color:var(--bad); background:var(--bad-soft)}
+.note.affirm{border-left-color:var(--good); background:var(--good-soft)}
+.note > :last-child{margin-bottom:0}
+.note-label{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+  font-weight:700; margin:0 0 7px; color:var(--accent);
+}
+.note.caution .note-label{color:var(--warn)}
+.note.critical .note-label{color:var(--bad)}
+.note.affirm .note-label{color:var(--good)}
+
+/* ── Tables ──────────────────────────────────────────── */
+.scroll{overflow-x:auto; margin:0 0 20px; border-radius:var(--radius)}
+table{
+  width:100%; border-collapse:collapse; font-size:.885rem;
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius);
+}
+caption{
+  caption-side:top; text-align:left; color:var(--muted);
+  font-size:.82rem; padding:0 0 8px; font-style:normal;
+}
+th{
+  text-align:left; font-weight:600; font-size:.72rem; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted);
+  padding:10px 14px; border-bottom:1px solid var(--rule);
+  background:var(--surface-2); white-space:nowrap;
+}
+td{padding:9px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top; color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink); font-weight:550}
+.num, th.num{text-align:right; white-space:nowrap}
+tr.total td{border-top:2px solid var(--rule); font-weight:650; color:var(--ink)}
+.pos{color:var(--good); font-weight:600}
+.neg{color:var(--bad); font-weight:600}
+
+/* ── Ladder grid (currency rows x day columns) ───────── */
+.ladder{font-size:.83rem; width:auto; min-width:100%}
+.ladder th, .ladder td{padding:7px 15px; text-align:right; white-space:nowrap}
+.ladder th:first-child, .ladder td:first-child{text-align:left}
+.ladder .hole{background:var(--bad-soft); color:var(--bad); font-weight:650}
+.ladder .fill{background:var(--good-soft); color:var(--good); font-weight:650}
+.ladder .hold{background:var(--accent-soft); color:var(--accent); font-weight:650}
+
+/* ── Cost stack bars ─────────────────────────────────── */
+.stack{display:flex; flex-direction:column; gap:12px; margin:6px 0 4px}
+.stack-row{display:grid; grid-template-columns:150px minmax(0,1fr) 62px; gap:14px; align-items:center}
+.stack-name{font-size:.85rem; color:var(--ink)}
+.stack-track{background:var(--sunk); border-radius:3px; height:15px; overflow:hidden}
+.stack-fill{height:100%; border-radius:3px; background:var(--accent)}
+.stack-fill.b2{background:var(--accent-2)}
+.stack-fill.b3{background:var(--muted)}
+.stack-fill.b4{background:var(--rule)}
+.stack-val{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.8rem; text-align:right; color:var(--ink-2); font-variant-numeric:tabular-nums;
+}
+
+/* ── Corridor diagram ────────────────────────────────── */
+.corridor{display:flex; gap:5px; align-items:flex-end; margin:4px 0 6px; min-width:520px}
+.corridor-day{flex:1; display:flex; flex-direction:column; align-items:stretch; gap:5px}
+.corridor-band{
+  height:74px; border-radius:4px; position:relative;
+  background:var(--sunk); border:1px solid var(--rule);
+}
+.corridor-allowed{
+  position:absolute; left:0; right:0; border-radius:3px;
+  background:var(--accent-soft); border:1px solid var(--accent-2);
+}
+.corridor-lbl{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:10px; text-align:center; color:var(--muted); letter-spacing:.04em;
+}
+
+/* ── Branch tree ─────────────────────────────────────── */
+.tree{display:flex; flex-direction:column; gap:0; margin:4px 0 6px; min-width:540px}
+.tree-node{
+  border:1px solid var(--rule); border-radius:var(--radius);
+  background:var(--surface-2); padding:11px 15px; font-size:.85rem;
+}
+.tree-node .n-title{font-weight:640; color:var(--ink); display:block; margin-bottom:2px}
+.tree-node .n-body{color:var(--ink-2); font-size:.83rem}
+.tree-node.pruned{background:var(--bad-soft); border-color:var(--bad); opacity:.92}
+.tree-node.kept{background:var(--good-soft); border-color:var(--good)}
+.tree-split{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+.tree-stem{
+  height:20px; border-left:2px solid var(--rule); margin-left:26px;
+}
+.tree-fork{
+  height:16px; margin:0 26px; border-left:2px solid var(--rule);
+  border-right:2px solid var(--rule); border-bottom:2px solid var(--rule);
+  border-bottom-left-radius:6px; border-bottom-right-radius:6px;
+}
+
+/* ── Two-up comparison ───────────────────────────────── */
+.duo{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:0 0 20px}
+@media (max-width: 720px){ .duo{grid-template-columns:1fr} }
+.duo .card{margin:0; height:100%}
+
+/* ── Scenario block ──────────────────────────────────── */
+.scenario{
+  border:1px solid var(--rule); border-radius:var(--radius);
+  background:var(--surface); box-shadow:var(--shadow);
+  margin:0 0 24px; overflow:hidden;
+}
+.scenario-head{
+  padding:16px 22px; background:var(--surface-2);
+  border-bottom:1px solid var(--rule);
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+.tag{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; font-weight:700; letter-spacing:.08em;
+  background:var(--accent); color:var(--surface);
+  padding:3px 8px; border-radius:3px;
+}
+:root[data-theme="dark"] .tag{color:var(--sunk)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tag{color:var(--sunk)} }
+.scenario-head h3{margin:0; font-size:1.03rem; font-weight:640}
+.scenario-body{padding:20px 22px}
+.scenario-body > :last-child{margin-bottom:0}
+
+.verdict{
+  border-top:1px solid var(--rule); background:var(--sunk);
+  padding:14px 22px; font-size:.9rem; color:var(--ink-2);
+}
+.verdict strong{color:var(--ink)}
+
+/* ── Rules of thumb ──────────────────────────────────── */
+.rules{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:12px; max-width:none}
+.rules li{
+  display:grid; grid-template-columns:30px minmax(0,1fr); gap:14px;
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius); padding:15px 18px; margin:0;
+}
+.rules .r-n{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.82rem; font-weight:700; color:var(--accent);
+}
+.rules .r-t{font-weight:640; display:block; margin-bottom:3px; color:var(--ink)}
+.rules .r-d{color:var(--ink-2); font-size:.92rem}
+
+footer{
+  border-top:1px solid var(--rule); background:var(--surface);
+  color:var(--muted); font-size:.85rem;
+}
+footer .shell{padding:26px 24px 34px}
+footer p{max-width:72ch; margin:0 0 .6em}
+</style>
+<style>
+/* corridor-specific additions */
+.term{border-left:4px solid var(--accent); padding-left:18px; margin:26px 0}
+.term-tag{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:0 0 4px}
+.lad{font-size:.82rem; width:auto; min-width:100%}
+.lad th,.lad td{padding:6px 13px; text-align:right; white-space:nowrap}
+.lad th:first-child,.lad td:first-child{text-align:left; min-width:190px}
+.lad .zero{color:var(--muted); font-weight:400}
+.lad .up{color:var(--accent); font-weight:650}
+.lad .dn{color:var(--bad); font-weight:650}
+.lad .res{background:var(--accent-soft); font-weight:700; color:var(--ink)}
+.lad tr.sep td,.lad tr.sep th{border-top:2px solid var(--rule)}
+.formula{background:var(--sunk); border:1px solid var(--rule); border-radius:var(--radius);
+  padding:15px 18px; margin:16px 0; font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:.85rem; line-height:1.9; color:var(--ink); overflow-x:auto}
+.formula b{color:var(--accent); font-weight:700}
+.band{display:flex; gap:4px; align-items:stretch; min-width:520px; margin:8px 0 4px}
+.band-day{flex:1; display:flex; flex-direction:column; gap:4px}
+.band-cell{height:120px; position:relative; background:var(--sunk);
+  border:1px solid var(--rule); border-radius:4px}
+.band-zero{position:absolute; left:0; right:0; top:50%; border-top:1px dashed var(--muted)}
+.band-ok{position:absolute; left:2px; right:2px; background:var(--accent-soft);
+  border:1px solid var(--accent-2); border-radius:2px}
+.band-lbl{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px;
+  text-align:center; color:var(--muted)}
+</style>
+
+<style>.muted{color:var(--muted);font-size:.85em}</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <p class="kicker">Cash &amp; FX Optimiser &middot; Design Analysis</p>
+    <h1>Sweeping the Surplus</h1>
+    <p class="standfirst">A proposed rule: unearmarked foreign credit must be <em>dealt</em> on day 0, at any
+    tenor. Should it cover only the opening balance, or later receipts too? Measured across the whole
+    scenario library and five purpose-built stress cases.</p>
+  </div>
+</header>
+
+<div class="shell">
+<div class="layout">
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#findings">Findings first</a></li>
+      <li><a href="#problem">What this rule is for</a></li>
+      <li><a href="#defs">The two variants</a></li>
+      <li><a href="#surplus">Measuring the surplus</a></li>
+      <li><a href="#library">Across the library</a></li>
+      <li><a href="#scope">Why B adds so little</a></li>
+      <li><a href="#stress">Five stress cases</a></li>
+      <li><a href="#minticket">The minimum-ticket decision</a></li>
+      <li><a href="#roll">Which one fixes the rolling problem</a></li>
+      <li><a href="#choose">How I would choose</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="findings">
+    <h2>Findings first</h2>
+    <p class="dek">If you read nothing else.</p>
+
+    <ol class="rules">
+      <li><span class="r-n">01</span><span>
+        <span class="r-t">The two variants are almost the same rule</span>
+        <span class="r-d">Across twenty-five scenarios, variant A changes <strong>one</strong> plan and
+        variant B changes <strong>two</strong>. The extra scenario costs 2.94 more. Whatever you were
+        expecting the difference to be, it is smaller.</span></span></li>
+
+      <li><span class="r-n">02</span><span>
+        <span class="r-t">Because the corridor already sweeps later receipts on arrival</span>
+        <span class="r-d">A receipt landing on day 2 or later gets no grace at all — the ceiling drops on
+        the very day it arrives. Only receipts landing inside the grace window are left loose, and with
+        the shipped tenors that window is <strong>day 1 alone</strong>. That is the entire extra scope of
+        variant B.</span></span></li>
+
+      <li><span class="r-n">03</span><span>
+        <span class="r-t">The cost is small and lands in one place</span>
+        <span class="r-d">S07 goes from 451.71 to 484.46 under either variant — the whole of the change,
+        and it buys the fix for the rolling problem. Everything else in the library is untouched or moves
+        by pennies.</span></span></li>
+
+      <li><span class="r-n">04</span><span>
+        <span class="r-t">Variant B removes the one-dollar artefact on S04</span>
+        <span class="r-d">The split ticket of 449,999 plus 1 collapses into a single clean 450,000 sale.
+        Not a reason to choose B on its own, but a real side benefit.</span></span></li>
+
+      <li><span class="r-n">05</span><span>
+        <span class="r-t">Skipping the rule below the minimum ticket changes nothing</span>
+        <span class="r-d">It is the right decision and it is inert. Whenever a surplus is below the
+        minimum ticket, the corridor's ceiling has <em>already</em> made the scenario infeasible. My rule
+        standing down does not rescue it.</span></span></li>
+
+      <li><span class="r-n">06</span><span>
+        <span class="r-t">Only variant B fully closes the rolling problem</span>
+        <span class="r-d">A fixes it for opening balances. A day-1 receipt would still be able to roll,
+        because it is the one case where money sits unearmarked with a deadline measured from today.</span></span></li>
+    </ol>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="problem">
+    <h2>What this rule is for</h2>
+    <p class="dek">A plan that is optimal every morning and never executed.</p>
+
+    <p>The corridor stops the model holding currency it cannot justify. But it says <em>when the position
+    must be gone</em>, not <em>when the decision must be made</em>. And the deadline is measured from today.</p>
+
+    <p>So a plan can say "sell in two days", and tomorrow, re-planned, say "sell in two days" again. The
+    deadline moves with you. Rolling a book forward day by day, re-planning each morning and following
+    the plan faithfully, the position is never sold:</p>
+
+    <div class="scroll">
+      <table>
+        <caption>Opening credit of 2,500,000 dollars, no dollar obligations, dollar out-yielding sterling</caption>
+        <thead><tr><th>Today</th><th>Holding</th><th>Plan says</th><th>Dealt today?</th></tr></thead>
+        <tbody>
+          <tr><td>day 0</td><td class="num">2,500,000</td><td>sell on day 2</td><td>no</td></tr>
+          <tr><td>day 1</td><td class="num">2,500,000</td><td>sell on day 2</td><td>no</td></tr>
+          <tr><td>day 2</td><td class="num">2,500,000</td><td>sell on day 2</td><td>no</td></tr>
+          <tr><td>day 3</td><td class="num">2,500,000</td><td>sell on day 2</td><td>no</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Each plan is individually correct. The sequence is not. And it is not a coin-flip the model
+    occasionally resolves in your favour — deferring is strictly cheaper by about 16.70 a day, so it
+    defers every time.</p>
+
+    <p>The proposed fix is to constrain the <strong>decision</strong> rather than the balance: any
+    unearmarked foreign credit must be <em>dealt</em> on day 0, at whatever tenor you like. Once
+    contracted, tomorrow's re-plan has nothing left to defer.</p>
+
+    <div class="note">
+      <p class="note-label">Why not just shorten the grace period?</p>
+      <p>Because the grace is a limit on the <em>balance</em>. Setting it to zero forces settlement on day
+      0, which means same-day dealing and nothing else — it removes the tenor choice entirely and is
+      infeasible outright if your desk does not quote T+0. It costs about 290 more than letting the model
+      pick its tenor. Shortening the grace changes when the deadline falls; it cannot change what the
+      deadline is anchored to.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="defs">
+    <h2>The two variants</h2>
+
+    <div class="term">
+      <p class="term-tag">Variant A &mdash; opening balance only</p>
+      <p>Whatever unearmarked foreign credit is in the <strong>opening balance</strong> must be sold on
+      day 0, at any tenor. Money arriving later is left to the corridor.</p>
+    </div>
+
+    <div class="term">
+      <p class="term-tag">Variant B &mdash; receipts too</p>
+      <p>Whatever unearmarked foreign credit is on the books on <strong>any day</strong> must have been
+      sold by that day, at any tenor. A receipt that arrives spare must be dealt the day it lands.</p>
+    </div>
+
+    <p>Both are constraints on trades rather than on balances, which makes them the first corridor rules
+    of their kind. Everything else in the corridor works by making a balance impossible; these force a
+    trade to exist.</p>
+
+    <p>Both leave the tenor free. That matters: it is the difference between a plan that costs 484.46 and
+    one that costs 768.66 on the same book.</p>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="surplus">
+    <h2>Measuring the surplus</h2>
+    <p class="dek">One obvious definition is wrong, and expensively so.</p>
+
+    <p>"Unearmarked" means: on the books, and not needed for any payment still ahead in that currency.</p>
+
+    <div class="formula">
+      surplus[day] &nbsp;=&nbsp; <b>max</b>( 0, &nbsp;do-nothing balance[day] &nbsp;&minus;&nbsp; earmark[day] &nbsp;)
+    </div>
+
+    <p>The measure has to be taken against the <strong>balance you actually hold</strong>, not against
+    cumulative receipts. I first wrote it as "receipts banked so far, less debts still ahead", which reads
+    plausibly and is badly wrong: a receipt that arrives to repay an overdraft is not spare cash, but that
+    formula counts it as though it were.</p>
+
+    <div class="note caution">
+      <p class="note-label">What that error did</p>
+      <p>On S05 — where a euro payment of 1.6m lands three days before the 1.75m receipt meant to cover it
+      — the bad measure read the entire receipt as surplus and forced it all to be sold. Cost went from
+      760.20 to <strong>4,290.12</strong>. On S22, which whipsaws in and out of overdraft, it forced a sale
+      on nearly every day and cost <strong>nine times</strong> the correct answer.</p>
+      <p style="margin-bottom:0">Every number elsewhere on this page uses the corrected measure. The wrong
+      one is recorded because it is an easy mistake to repeat, and because the symptom — a rule that looks
+      reasonable producing costs several times too high — is worth recognising.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="library">
+    <h2>Across the library</h2>
+    <p class="dek">Twenty-five scenarios, both variants, against today's behaviour.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Scenario</th><th class="num">Today</th><th class="num">Variant A</th><th class="num">Variant B</th><th>Changed</th></tr></thead>
+        <tbody>
+          <tr><td>S04 &mdash; receipt funds a later payment</td><td class="num">765.91</td><td class="num">765.91</td><td class="num">768.85</td><td>B only</td></tr>
+          <tr><td>S07 &mdash; dollar carry temptation</td><td class="num">451.71</td><td class="num">484.46</td><td class="num">484.46</td><td>A and B</td></tr>
+          <tr class="total"><td>The other 23 scenarios</td><td class="num">unchanged</td><td class="num">unchanged</td><td class="num">unchanged</td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>That is the whole result. Twenty-three of twenty-five are untouched by either variant, because
+    they have no unearmarked foreign credit to sweep — they either open flat or open owing more than they
+    hold.</p>
+
+    <h3>S07 &mdash; the one that matters</h3>
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S07 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,450,000</td></tr>
+          <tr><td>Surplus</td><td class="up">2,450,000</td><td class="up">2,450,000</td><td class="up">2,450,000</td><td class="up">2,450,000</td><td class="up">2,450,000</td><td class="up">2,400,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Plan</th><th>Trade</th><th class="num">Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Today</td><td>sell 2,450,000 on <strong>day 2</strong>, same-day settlement</td><td class="num">451.71</td></tr>
+          <tr><td>Variant A or B</td><td>sell 2,450,000 on <strong>day 0</strong>, T+2 settlement</td><td class="num">484.46</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The trade is the same size and settles on the same day. The only change is that it is
+    <em>contracted on day 0</em> rather than left as a decision for day 2 — which is the entire point, and
+    it costs <strong>32.75</strong>.</p>
+
+    <h3>S04 &mdash; the only place the variants disagree</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Plan</th><th>Trades</th><th class="num">Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Today, and variant A</td><td>sell 449,999 on day 2 &nbsp;+&nbsp; sell <strong>1</strong> on day 5</td><td class="num">765.91</td></tr>
+          <tr><td>Variant B</td><td>sell 450,000 on day 1</td><td class="num">768.85</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>S04's 1,400,000 arrives as a receipt on day 1, so variant A never sees it — the opening balance is
+    zero. Variant B forces it out the day it lands, at a cost of 2.94, and as a side effect
+    <strong>removes the one-dollar artefact</strong>: the split ticket becomes one clean sale.</p>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="scope">
+    <h2>Why B adds so little</h2>
+    <p class="dek">The most useful thing on this page. The corridor is already doing most of B's job.</p>
+
+    <p>The grace period covers the first two days only. A receipt arriving after that gets <strong>no
+    grace at all</strong> — the ceiling drops on the very day it lands, so the corridor already forces it
+    out immediately. There is nothing left for variant B to add.</p>
+
+    <p>The same receipt of 900,000, arriving on different days:</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Receipt lands</th><th>Ceiling first bites on</th><th>Grace it gets</th><th>Can it roll?</th></tr></thead>
+        <tbody>
+          <tr><td>day 0</td><td>day 2</td><td>2 days</td><td class="neg">yes &mdash; covered by variant A</td></tr>
+          <tr><td>day 1</td><td>day 2</td><td>1 day</td><td class="neg">yes &mdash; <strong>only variant B covers this</strong></td></tr>
+          <tr><td>day 2</td><td>day 2 &mdash; same day it arrives</td><td>none</td><td class="pos">no</td></tr>
+          <tr><td>day 3</td><td>day 3 &mdash; same day it arrives</td><td>none</td><td class="pos">no</td></tr>
+          <tr><td>day 4</td><td>day 4 &mdash; same day it arrives</td><td>none</td><td class="pos">no</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note affirm">
+      <p class="note-label">So the entire difference between the two variants is one day</p>
+      <p>Variant A covers surplus present on day 0. The corridor already covers surplus arriving on day 2
+      or later. That leaves exactly the days <em>inside</em> the grace window but after day 0 — with the
+      shipped tenors, <strong>day 1 and nothing else</strong>.</p>
+      <p style="margin-bottom:0">Which is precisely why S04, whose receipt lands on day 1, is the only
+      scenario in the library where the variants disagree.</p>
+    </div>
+
+    <p>One consequence worth noting: the gap widens if you ever offer longer tenors. A three-day
+    settlement makes the grace three days, so receipts landing on days 1 <em>and</em> 2 would be left
+    loose, and variant B would cover two days rather than one.</p>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="stress">
+    <h2>Five stress cases</h2>
+    <p class="dek">The library has only one mid-horizon surplus, so these were built to probe the difference.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Case</th><th class="num">Today</th><th class="num">A</th><th class="num">B</th><th>What it shows</th></tr></thead>
+        <tbody>
+          <tr><td>Receipt on day 2, currency out-yields base</td><td class="num">349.07</td><td class="num">349.07</td><td class="num">349.07</td>
+              <td>The ceiling already forces the sale on arrival. Neither variant adds anything.</td></tr>
+          <tr><td>Same, currency yields below base</td><td class="num">387.91</td><td class="num">387.91</td><td class="num">387.91</td>
+              <td>No incentive to hold in the first place. All three agree.</td></tr>
+          <tr><td>Opening surplus <em>and</em> a later receipt</td><td class="num">453.01</td><td class="num">471.73</td><td class="num">471.73</td>
+              <td>Both variants force a day-0 deal. Cost +18.71.</td></tr>
+          <tr><td>Surplus below the minimum ticket</td><td>Infeasible</td><td>Infeasible</td><td>Infeasible</td>
+              <td>Already infeasible without either rule. See below.</td></tr>
+          <tr><td>Surplus arrives on the last day</td><td class="num">368.48</td><td class="num">368.48</td><td class="num">368.48</td>
+              <td>The terminal sweep handles it. Nothing to add.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Case three is worth a second look. The book opens holding 600,000 with a further 900,000 arriving
+    on day 2. Both variants force a day-0 deal, and the model sells <strong>1,400,000</strong> — more than
+    it holds on day 0 — for settlement on day 2, by which time the receipt has landed. That is legal,
+    sensible, and cheaper than two tickets, because commission tiers restart on every ticket. The rule
+    does not confine you to selling what is in the account today.</p>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="minticket">
+    <h2>The minimum-ticket decision</h2>
+    <p class="dek">You chose to skip the rule when the surplus is too small to deal. It is right, and it does nothing.</p>
+
+    <p>The concern was that a surplus smaller than the minimum ticket would make the rule demand a trade
+    nobody could execute, turning a workable scenario infeasible. Skipping the rule in that case avoids
+    it. But by the time the rule would have fired, the corridor has already caused the same failure:</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>Opening 120,000 USD, 100,000 due on day 5</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="up">120,000</td><td class="up">120,000</td><td class="up">120,000</td><td class="up">120,000</td><td class="up">120,000</td><td class="up">20,000</td></tr>
+          <tr><td>Ceiling</td><td class="up">120,000</td><td class="up">120,000</td><td class="res">100,000</td><td class="res">100,000</td><td class="res">100,000</td><td class="res">100,000</td></tr>
+          <tr><td>Surplus</td><td class="up">20,000</td><td class="up">20,000</td><td class="up">20,000</td><td class="up">20,000</td><td class="up">20,000</td><td class="zero">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Minimum ticket</th><th>Today</th><th>Variant A</th><th>Variant B</th></tr></thead>
+        <tbody>
+          <tr><td>none</td><td class="num">&minus;25.72</td><td class="num">&minus;25.45</td><td class="num">&minus;25.45</td></tr>
+          <tr><td>500,000 base (632,911 USD)</td><td>Infeasible</td><td>Infeasible <span class="muted">(rule skipped)</span></td><td>Infeasible <span class="muted">(rule skipped)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The ceiling drops to 100,000 on day 2 regardless, so a 20,000 sale is required whether or not the
+    new rule asks for one — and 20,000 is far below the 632,911 minimum. The scenario was already
+    infeasible.</p>
+
+    <div class="note">
+      <p class="note-label">So keep the skip, but do not expect it to help</p>
+      <p>It is still the correct behaviour: the rule should not be the thing that breaks a book, and the
+      skip makes the new rule strictly weaker than the corridor it sits beside. It just will not rescue
+      anything, because the corridor gets there first. If small unearmarked balances against a large
+      minimum ticket are a real situation for you, the fix belongs in the corridor, not here.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="roll">
+    <h2>Which one fixes the rolling problem</h2>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Where the surplus is</th><th>Can it roll today?</th><th>Variant A</th><th>Variant B</th></tr></thead>
+        <tbody>
+          <tr><td>Opening balance</td><td class="neg">yes, indefinitely</td><td class="pos">fixed</td><td class="pos">fixed</td></tr>
+          <tr><td>Receipt landing on day 1</td><td class="neg">yes, one day at a time</td><td class="neg">still rolls</td><td class="pos">fixed</td></tr>
+          <tr><td>Receipt landing on day 2 or later</td><td class="pos">no &mdash; ceiling bites on arrival</td><td class="pos">n/a</td><td class="pos">n/a</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Variant A leaves one hole: a receipt landing on day 1 is unearmarked, gets a day of grace, and that
+    grace is measured from today. Re-plan tomorrow and the same receipt — now an opening balance — is
+    covered by variant A after all, so in practice it rolls once and is then caught.</p>
+
+    <p>That is a much smaller leak than the opening-balance case, which rolls forever. But it is a leak,
+    and variant B closes it for the cost of 2.94 on one library scenario.</p>
+  </section>
+
+  <!-- ══════════════════════════════════ -->
+  <section id="choose">
+    <h2>How I would choose</h2>
+
+    <p>Given how close the two are, the decision is not really about cost. It is about which rule is
+    easier to explain and harder to get wrong.</p>
+
+    <div class="duo">
+      <div class="card">
+        <p class="card-title">Variant A &mdash; opening only</p>
+        <p style="font-size:.93rem">Simpler to state: "what you start the week holding and do not need,
+        you deal today." One constraint per currency, evaluated once.</p>
+        <p style="font-size:.93rem">Leaves the day-1 receipt able to roll once. Changes one library plan.</p>
+        <p style="font-size:.93rem; margin-bottom:0">Easier to reconcile against a desk's own daily
+        process, which usually starts from the opening position.</p>
+      </div>
+      <div class="card">
+        <p class="card-title">Variant B &mdash; receipts too</p>
+        <p style="font-size:.93rem">Harder to state precisely, because "the day it becomes available"
+        needs the surplus measured correctly on every day — the trap in section four.</p>
+        <p style="font-size:.93rem">Closes the leak completely. Removes the one-dollar artefact on S04.
+        Changes two library plans.</p>
+        <p style="font-size:.93rem; margin-bottom:0">One constraint per currency per day, so more rows;
+        immaterial at this size.</p>
+      </div>
+    </div>
+
+    <p><strong>I would take variant B</strong>, on the grounds that the extra scope costs 2.94 across the
+    entire library and closes the rule's only remaining gap — and a rule with a known hole in it is harder
+    to reason about later than a rule without one. The measurement trap is a one-time implementation
+    risk, not an ongoing one, and it is now documented.</p>
+
+    <p>The case for A is real though, and it is about people rather than money: "sweep what you opened
+    with" is a sentence a treasurer can hold in their head, and it matches how a desk already thinks about
+    the start of the day. If this rule is going to be explained to anyone who does not read the model, that
+    is worth more than 2.94.</p>
+
+    <div class="note caution">
+      <p class="note-label">Whichever you pick, one thing has to be true around it</p>
+      <p>The optimiser has no memory of contracted trades. Deal T+2 on day 0, re-plan on day 1, and the
+      day-1 run still sees the money on the books with no idea a sale is already booked — so it would
+      demand another one. This rule is only safe if your rolling process feeds pending settlements into
+      the next run's ladder. That is what the integration layer's day-over-day balance deltas are for, but
+      it should be confirmed before either variant goes near production.</p>
+    </div>
+  </section>
+
+  </main>
+</div>
+</div>
+
+<footer>
+  <div class="shell">
+    <p>Every figure here comes from solving the model with the constraint added, not from estimating what
+    it would do. The experiment rebuilds the optimiser and adds the rule as an extra constraint; no
+    package code was changed to produce these numbers.</p>
+    <p style="margin-bottom:0">The corridor itself — ceiling, floor, grace and how they interact — is
+    documented separately in <code>docs/holding-corridor.html</code>.</p>
+  </div>
+</footer>
+
+</body>
+</html>
