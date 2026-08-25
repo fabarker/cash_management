@@ -123,17 +123,25 @@ so a trade dealt on day 3 at `T2` settles on day 5.
 
 ### Constraints
 
-Three are switchable, on `Config.constraints`:
+Four are switchable, on `Config.constraints`:
 
 - **`holding_ceiling`** is the anti-speculation policy, and the one that does most of
   the work. Two bounds per currency per day keep the balance inside the corridor the
   cash flows themselves define: a ceiling at the funding hole a trade dealt today could
   still settle against, plus whatever part of banked receipts a remaining outflow will
   consume; and a floor at the deepest overdraft the cash flows actually dig. The reach
-  window on the ceiling is what makes it anti-speculation rather than a size limit — if
-  a payment can always be funded by dealing at the longest tenor, owning the currency
-  earlier is a position, not funding, so the ceiling is zero until the obligation comes
-  within dealing range.
+  window on the ceiling is what makes it anti-speculation rather than a size limit —
+  owning currency before the obligation is a position, not funding, so the ceiling is
+  zero until the obligation comes within range.
+- **`settle_on_need_only`** sets how wide that window is, and ships **on**. With it on
+  the window closes to the single day: the balance may only be positive where the
+  ladder is itself overdrawn, so a purchase settles on the very day the money leaves
+  and the currency is never held overnight. Turn it off and the window opens to the
+  full settlement lag, which restores a free choice of tenor and collects the carry a
+  short holding earns. Ten of the twenty-four solved scenarios change plan between the
+  two, each paying back exactly the carry the wider window collects. It is inert while
+  `holding_ceiling` is off, and it narrows only the acquisition term — money the
+  account was *given* is untouched, or a receipt would have to be sold and rebought.
 - **`terminal_sweep`** forces every foreign balance to zero on the last day.
 - **`no_loop`** forbids buying and selling one currency for the same settlement day. It
   looks inert — the objective rejects a wash trade at any spread — but it binds where

@@ -1215,8 +1215,8 @@ class TestHoldingCorridor(CostAssertions):
                     debit_carry_pa={"GBP": 6.0, "USD": 9.0,
                                     "EUR": 9.0, "JPY": 9.0})
 
-    def _ceiling(self, flows, opening=None, horizon=8):
-        cfg = Config(horizon_days=horizon)
+    def _ceiling(self, flows, opening=None, horizon=8, **cfg_kw):
+        cfg = Config(horizon_days=horizon, **cfg_kw)
         cf = CashFlowSet(horizon_days=horizon)
         for ccy, day, amount in flows:
             cf.add(ccy, day, amount)
@@ -1267,17 +1267,32 @@ class TestHoldingCorridor(CostAssertions):
     # ── what the old rules got right, still guaranteed ──
 
     def test_nothing_is_held_before_the_reach_window(self):
-        ceiling = self._ceiling([("USD", 6, -250_000)])
+        # The reach window is what this covers, so it pins the wider policy
+        # explicitly.  ``settle_on_need_only`` now ships on and closes the
+        # window to the single day; inheriting the default would leave this
+        # asserting whichever rule happens to be shipped rather than the
+        # one it was written for.
+        wide = ConstraintFlags(settle_on_need_only=False)
+        ceiling = self._ceiling([("USD", 6, -250_000)], constraints=wide)
         self.assertEqual(ceiling[:4], [0, 0, 0, 0],
                          "a day-6 payment is out of reach until day 4")
         self.assertEqual(ceiling[4], 250_000)
 
         r = solve([("USD", 6, -250_000)], {"GBP": 8_000_000},
-                  horizon=8, **self.HIGH_USD)
+                  horizon=8, constraints=ConstraintFlags(
+                      settle_on_need_only=False), **self.HIGH_USD)
         early = [b.balance for b in r.balances
                  if b.ccy == "USD" and b.day < 4]
         self.assertTrue(all(abs(v) < 1.0 for v in early),
                         "no position may exist before the payment is reachable")
+
+    def test_settle_on_need_only_closes_the_window_entirely(self):
+        # The shipped default: the ceiling is the hole on the day itself,
+        # so the balance may only be positive where the ladder is overdrawn.
+        ceiling = self._ceiling([("USD", 6, -250_000)])
+        self.assertEqual(ceiling[:6], [0, 0, 0, 0, 0, 0],
+                         "nothing may be held until the obligation lands")
+        self.assertEqual(ceiling[6], 250_000)
 
     def test_no_position_is_built_for_yield(self):
         for rate in (18.0, 50.0, 200.0):
@@ -1352,9 +1367,10 @@ class TestSettleOnNeedOnly(CostAssertions):
     from the settlement window to the single day, so a purchase must settle
     on the day the money leaves and the currency is never held overnight.
 
-    It is a policy tightening rather than a fix — the wider window is
-    deliberate, and exists so the model keeps a free choice of tenor — so
-    the flag defaults off and these tests pin both states."""
+    It ships on.  Turning it off restores the wider window, which exists so
+    the model keeps a free choice of tenor rather than being forced onto
+    the one that lands on the obligation, so these tests pin both states
+    explicitly rather than relying on the default."""
 
     # The shipped Config has the dollar yielding well below sterling, so
     # the model already declines to hold it early and the flag changes
@@ -1374,9 +1390,10 @@ class TestSettleOnNeedOnly(CostAssertions):
                 sorted((b for b in result.balances if b.ccy == ccy),
                        key=lambda b: b.day)]
 
-    def test_the_flag_defaults_off(self):
-        # A tightening nobody asked for should not arrive by upgrade.
-        self.assertFalse(ConstraintFlags().settle_on_need_only)
+    def test_the_flag_defaults_on(self):
+        # It ships on: settlement must land on the day the money leaves.
+        # Turning it off restores the wider settlement window.
+        self.assertTrue(ConstraintFlags().settle_on_need_only)
 
     def test_off_still_permits_holding_within_the_settlement_window(self):
         result = self._solve(False, [("USD", 4, -750_000)], {"GBP": 5_000_000})

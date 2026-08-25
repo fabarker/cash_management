@@ -32,9 +32,7 @@ class ConstraintFlags:
     """
     Toggle individual optimizer constraints on or off.
 
-    The three original flags default to ``True`` (active);
-    ``settle_on_need_only`` is a tightening rather than one of the standing
-    rules and defaults to ``False``.  Structural constraints
+    All flags default to ``True`` (active).  Structural constraints
     (balance evolution, balance decomposition, activation linking,
     commission-tier linking) are always active — they define the model
     mechanics and cannot be disabled.
@@ -64,7 +62,7 @@ class ConstraintFlags:
         purchases cannot see at all.
     settle_on_need_only : bool
         Narrow the holding ceiling from a settlement window to the single
-        day.  Off by default, and it only means anything while
+        day.  On by default; it only means anything while
         ``holding_ceiling`` is on.
 
         The ceiling normally admits the deepest hole anywhere in
@@ -80,19 +78,20 @@ class ConstraintFlags:
         it collapses the choice of tenor: each dealing day admits exactly
         the one tenor that lands on the obligation.
 
-        It is a policy, not a correction.  The wider window is deliberate
-        (see ``CashOptimizer._holding_ceiling``), and exists so the model
-        keeps a free choice of tenor rather than being forced onto the
-        shortest one.  Turn this on when no overnight position is
-        acceptable at any price, and expect both a higher cost and more
-        infeasibility against a minimum ticket, because a surplus has no
-        neighbouring day left to sit in.
+        It is a policy, not a correction, and it is the stricter of two
+        defensible readings.  Turning it **off** restores the wider window,
+        which exists so the model keeps a free choice of tenor rather than
+        being forced onto the one that lands on the obligation.  Costs are
+        higher with it on -- across the shipped library ten of twenty-four
+        plans change and every one of them pays back the carry it used to
+        collect -- and a minimum ticket is likelier to be infeasible,
+        because a surplus has no neighbouring day left to sit in.
     """
 
     terminal_sweep: bool = True
     no_loop: bool = True
     holding_ceiling: bool = True
-    settle_on_need_only: bool = False
+    settle_on_need_only: bool = True
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""

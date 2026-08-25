@@ -283,7 +283,9 @@ which returns `None` for absent keys — much of the code branches on that.
 ### Constraint toggles
 
 `ConstraintFlags` (on `Config.constraints`, or passed to `CashManager`, which takes a
-copy) switches off `terminal_sweep`, `no_loop`, `holding_ceiling`. Balance evolution,
+copy) switches off `terminal_sweep`, `no_loop`, `holding_ceiling`, and
+`settle_on_need_only` — the last being a tightening *of* the holding ceiling rather
+than a rule of its own, and inert while `holding_ceiling` is off. Balance evolution,
 balance decomposition, activation linking and commission-tier linking are structural
 and always applied.
 
@@ -300,10 +302,22 @@ Everything is read off `_do_nothing_ladder(ccy)` — opening balance plus that
 currency's own cash flows, no trades — so the rule sees an opening overdraft, which
 is what a rule keyed on the cash flow file cannot.
 
-The reach window (`d .. d + max_lag`) on the first term is what makes it
-anti-speculation rather than a size limit: if a payment can always be funded by
-dealing at the longest tenor, owning the currency earlier is a position, not funding,
-so the ceiling is simply zero until the obligation comes within dealing range.
+The reach window on the first term is what makes it anti-speculation rather than a
+size limit: owning currency before the obligation is a position, not funding, so the
+ceiling is zero until the obligation comes within range. **How wide that window is,
+is `ConstraintFlags.settle_on_need_only`.** It ships **on**, which closes the window
+to the single day: the balance may only be positive where the do-nothing ladder is
+itself overdrawn, so a purchase must settle on the very day the money leaves and the
+currency is never held overnight. Turn it off and the window opens to
+`d .. d + max_lag` — the obligation is reachable from any day a trade could still
+settle against it, which leaves the model a free choice of tenor.
+
+Only the acquisition term narrows. The earmark and the opening carve-out describe
+money the account was *given*, and putting the window on those would force a receipt
+to be sold and rebought for two commissions. Ten of the twenty-four solved scenarios
+change plan between the two settings, every one of them paying back the carry the
+wider window collects — S01 costs 1,126.07 open and 1,135.87 closed, which is exactly
+its two days of dollar credit.
 
 Four details are load-bearing, each of them a bug that testing caught:
 

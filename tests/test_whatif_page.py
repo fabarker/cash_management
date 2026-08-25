@@ -164,12 +164,31 @@ class TestVerdict(WhatIfAssertions):
     the case a user is most likely to go looking for."""
 
     def test_a_legal_dearer_route_is_reported_as_dearer(self):
-        # S01: the optimal plan deals day 0 at T2; this waits and deals T1.
+        # S01: the optimal plan deals day 2 at T2, settling on the day the
+        # payment falls due; this waits a day and deals T1 into the same
+        # settlement day.  Legal, and dearer by the day of dollar carry it
+        # gives up plus the worse near-tenor rate.
         state = priced('S01', [('USD', 3, 'T1', 'BUY', 750_000)])
         verdict = state.get_manual_verdict()
         self.assertEqual(verdict['kind'], 'dearer')
         self.assertEqual(verdict['violations'], [])
-        self.assertCostClose(verdict['delta'], -14.8293)
+        self.assertCostClose(verdict['delta'], -5.0244)
+
+    def test_settling_before_the_need_day_is_now_a_violation(self):
+        """The route that used to be optimal is now forbidden.
+
+        ``settle_on_need_only`` ships on, so a purchase settling two days
+        before the payment is a position rather than funding.  It is also
+        *cheaper* — it collects two days of dollar carry — which is exactly
+        the case the void verdict exists for: a real saving that is not
+        available.
+        """
+        state = priced('S01', [('USD', 0, 'T2', 'BUY', 750_000)])
+        verdict = state.get_manual_verdict()
+        self.assertEqual(verdict['kind'], 'void')
+        self.assertGreater(verdict['delta'], 0.0)
+        self.assertTrue(any('holding_ceiling' in v
+                            for v in verdict['violations']))
 
     def test_a_cheaper_route_that_breaks_a_rule_is_void_not_a_saving(self):
         # S07: hold the dollar credit to the last day instead of sweeping
@@ -202,6 +221,8 @@ class TestVerdict(WhatIfAssertions):
                             for v in verdict['violations']))
 
     def test_copying_the_optimal_plan_prices_level_with_it(self):
+        # Whatever the shipped corridor policy is, copying its own answer
+        # has to price identically to it.
         state = loaded('S01')
         self.assertEqual(state.copy_optimal_to_manual(),
                          len(state.optimal_result.trades))
@@ -219,7 +240,7 @@ class TestVerdict(WhatIfAssertions):
         moving the baseline, which is what that defect looks like from the
         page's side.
         """
-        state = priced('S01', [('USD', 0, 'T2', 'BUY', 750_000)])
+        state = priced('S01', [('USD', 2, 'T2', 'BUY', 750_000)])
         self.assertEqual(state.get_manual_verdict()['kind'], 'level')
         state.optimal_result.total_cost += 500.0
         verdict = state.get_manual_verdict()

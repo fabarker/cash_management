@@ -117,8 +117,10 @@ SCENARIOS = [
         "GBP", ["USD"], 6,
         {"GBP": 4_000_000.0, "USD": 0.0},
         [("USD", 4, -750_000.0)],
-        expectation="One USD buy landing on day 4. Nothing held before day 2, "
-                    "because the payment is out of dealing reach until then.",
+        expectation="One USD buy settling on day 4, the day the invoice "
+                    "falls due. The dollar ladder stays at zero throughout: "
+                    "settlement lands on the obligation, so the currency is "
+                    "never actually held.",
     ),
     scenario(
         "S02", "Staggered payables",
@@ -410,12 +412,14 @@ SCENARIOS = [
 # description of the cost model.
 COST_REASONING = {
     "S01":
-        "Pure dealing cost: 20bps on the first 500,000 and 10bps above it "
-        "is 987.75, and the half-spread against spot mid another 148.13. The "
-        "dollars settle on day 2 against a day-4 payment, so two days of "
-        "dollar credit come back at 9.80 and the plan lands at 1,126.07. "
-        "Dealing earlier buys nothing: the ticket costs the same and the "
-        "holding corridor will not open the position before day 2 anyway.",
+        "Pure dealing cost, and nothing else: 20bps on the first 500,000 "
+        "and 10bps above it is 987.75, the half-spread against spot mid "
+        "another 148.13, and the plan is the 1,135.87 between them. No "
+        "carry accrues either way because settlement lands on the payment "
+        "day, so the dollars are paid away the moment they arrive. Dealing "
+        "earlier would collect two days of dollar credit worth 9.80, and "
+        "the corridor forbids it -- owning the currency before the "
+        "obligation is a position, not funding.",
     "S02":
         "Institutional pricing of 5bps then 2bps makes dealing cheap enough "
         "that there is no reason to bundle the three legs. Each is funded in "
@@ -444,8 +448,10 @@ COST_REASONING = {
         "spending it avoids a 35bps first-tier commission on the same money "
         "twice over. The euro base is drawn down to about 35,000 but never "
         "goes overdrawn, so no debit carry is charged at all: the cost is "
-        "1,155 of commission and 86 of spread, against 30 of credit "
-        "differential given up by sitting in francs rather than euros.",
+        "1,155 of commission and 86 of spread, against 45 of credit "
+        "differential given up by sitting in francs rather than euros. The "
+        "dollar leg settles on the day the payment falls due, so it earns "
+        "nothing on the way through.",
     "S07":
         "The dollar pays 6.40% against sterling's 3.50%, so 2.5m dollars "
         "earn 0.8189bps/day — 333.13 across the ladder. That is the "
@@ -504,8 +510,10 @@ COST_REASONING = {
         "Retail pricing dominates everything else: 60bps on the first "
         "100,000, 35bps to a million and 20bps above brings commission to "
         "about 3,750 on a 1.15m payment — roughly 33bps blended. The wide "
-        "spread adds 852 more, and two days of dollar credit against the "
-        "euro base come back at 124. The schedule alone decides the answer.",
+        "spread adds 852 more, and there is no carry either way because "
+        "settlement lands on the payment day. Holding the dollars the two "
+        "days the wider corridor used to allow would have been worth 124 "
+        "against the euro base. The schedule alone decides the answer.",
     "S18":
         "Three overdrafts, each cured once. Clearing them costs 20bps on "
         "the first 500,000 and 10bps above; leaving them costs between "
