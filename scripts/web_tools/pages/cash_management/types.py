@@ -74,6 +74,9 @@ class CashManagementRefs:
     # ── What-if section (own section; visible once a scenario loads,
     #    with or without an optimizer plan to compare against) ──
     whatif_section: ui.element
+    whatif_open_btn: ui.button
+    whatif_dialog: ui.dialog
+    whatif_close_btn: ui.button
     whatif_ccy_select: ui.select
     whatif_day_select: ui.select
     whatif_tenor_select: ui.select

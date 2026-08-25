@@ -144,11 +144,15 @@ Three things are load-bearing:
   CBC returns provably sub-optimal plans here and labels them `Optimal`. That case
   gets an amber banner naming the solver, and is why `Result.optimality_unproven`
   is read on the page.
-- **A baseline is useful, never a precondition.** The section appears on scenario load,
-  not after a solve. `Result.status == 'Infeasible'` carries `total_cost=None` and no
-  balances, so `has_baseline` gates the *delta*, not the feature: on S16 the hand plan
-  still prices, and its violation list names the minimum-ticket rule that made the
-  scenario infeasible in the first place.
+- **A baseline is useful, never a precondition.** The trade builder is a dialog, and
+  the button that opens it is not rendered until an optimization has been *executed* —
+  with nothing on the page there would be nothing to price a route against. An
+  `Infeasible` solve still counts as executed, which is the point: `Result.status ==
+  'Infeasible'` carries `total_cost=None` and no balances, so `has_baseline` gates the
+  *delta*, not the feature. On S16 the hand plan still prices, and its violation list
+  names the minimum-ticket rule that made the scenario infeasible in the first place.
+  The comparison renders on the page rather than in the dialog: past two currencies the
+  cost table and the two ladders need more width than a dialog has.
 
 Staleness is the easiest way for this to lie, so a priced plan is discarded whenever
 the ladder, the constraint flags or the scenario move under it. The entered **trades**

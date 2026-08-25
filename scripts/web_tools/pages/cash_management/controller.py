@@ -772,12 +772,12 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             # Hide stale results from a previous run
             self.refs.results_section.classes(add='hidden')
 
-            # The what-if section is revealed here, not after a solve: the
-            # optimiser's plan is a baseline when there is one, never a
-            # precondition for pricing a route by hand.
+            # Populate the builder's dropdowns from the new scenario, but
+            # keep the whole section hidden: it is revealed by running the
+            # optimizer, not by loading a book.
             self._populate_whatif_inputs()
             self._refresh_whatif()
-            self.refs.whatif_section.classes(remove='hidden')
+            self._show_whatif_gate(False)
 
             sc = self.state.scenario or {}
             ui.notify(
@@ -842,7 +842,10 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             # apply_edits_and_optimize has already dropped the priced
             # what-if plan (its ladder was just rewritten); redraw so the
             # stale comparison is gone from the page as well as from state.
+            # A plan now exists, so the what-if button appears.
+            self._populate_whatif_inputs()
             self._refresh_whatif()
+            self._show_whatif_gate(True)
 
             # Notify
             n_trades = len(trades_data)
@@ -873,7 +876,7 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         """Enable only what the current state can actually do."""
         loaded = self.state.cash_manager is not None and not self.state.is_loading
         for btn in (self.refs.whatif_add_btn, self.refs.whatif_evaluate_btn,
-                    self.refs.whatif_donothing_btn):
+                    self.refs.whatif_donothing_btn, self.refs.whatif_open_btn):
             btn.enable() if loaded else btn.disable()
 
         has_plan = bool(getattr(self.state.optimal_result, 'trades', None))
@@ -1261,10 +1264,26 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
                 )
 
     def _refresh_whatif(self) -> None:
-        """Redraw the whole what-if section from state."""
+        """Redraw the builder's contents and the on-page comparison."""
         self._render_entered_trades()
         self._render_whatif_results()
         self._update_whatif_btn_state()
+
+    def _show_whatif_gate(self, visible: bool) -> None:
+        """Show or hide the whole what-if section.
+
+        The button is not rendered until an optimization has been executed:
+        with no plan on the page there is nothing to price a route against,
+        so offering the builder would be offering half a feature.  An
+        ``Infeasible`` solve still counts as executed — that is the case
+        where a hand-priced route is most informative, because it shows
+        what the binding constraint is costing.
+        """
+        if visible:
+            self.refs.whatif_section.classes(remove='hidden')
+        else:
+            self.refs.whatif_section.classes(add='hidden')
+            self.refs.whatif_dialog.close()
 
     def _invalidate_whatif(self) -> None:
         """Drop the priced plan because the ladder underneath it moved.
@@ -1277,9 +1296,24 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         had_result = self.state.manual_result is not None
         self.state.clear_manual()
         self._refresh_whatif()
+        # Both callers have just discarded the optimal plan too, so there is
+        # nothing left to compare against and the gate closes with it.
+        self._show_whatif_gate(False)
         return had_result
 
     # ── Handlers ────────────────────────────────────────────────
+
+    def _on_whatif_open(self, *_) -> None:
+        """Open the builder, with the dropdowns matched to the loaded book."""
+        if self.state.cash_manager is None:
+            return
+        self._populate_whatif_inputs()
+        self._render_entered_trades()
+        self._update_whatif_btn_state()
+        self.refs.whatif_dialog.open()
+
+    def _on_whatif_close(self, *_) -> None:
+        self.refs.whatif_dialog.close()
 
     def _on_whatif_add(self, *_) -> None:
         """Validate and append one trade to the route."""
@@ -1364,17 +1398,13 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.state.is_loading = True
         self._update_whatif_btn_state()
 
+        # Only the pricing call is guarded here.  Wrapping the rendering in
+        # the same try would let a failure that has nothing to do with the
+        # route -- a broken table, a notification that cannot be shown --
+        # discard a plan that priced perfectly well, and report it to the
+        # user as "could not price that route", which would be a lie.
         try:
             await run.io_bound(self.state.evaluate_manual)
-            self._render_whatif_results()
-
-            v = self.state.get_manual_verdict()
-            n = len(self.state.manual_violations)
-            ui.notify(
-                f'Route priced — value impact {v["manual_impact"]:,.2f}'
-                + (f', {n} rule(s) broken' if n else ''),
-                type='warning' if n else 'positive', position='top',
-            )
         except Exception as exc:
             log.exception('What-if evaluation failed')
             self.state.clear_manual()
@@ -1382,11 +1412,26 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
             self._show_error(f'Could not price that route: {exc}')
             ui.notify(str(exc), type='negative', position='top', multi_line=True,
                       classes='whitespace-pre-line')
+            return
         finally:
             self.state.is_loading = False
             self._update_whatif_btn_state()
             self._update_generate_btn_state()
             self._update_load_btn_state()
+
+        # The comparison belongs on the page, not in the dialog: the cost
+        # table and the two ladders need more width than a dialog has once
+        # a book runs past two currencies.
+        self.refs.whatif_dialog.close()
+        self._render_whatif_results()
+
+        v = self.state.get_manual_verdict()
+        n = len(self.state.manual_violations)
+        ui.notify(
+            f'Route priced — value impact {v["manual_impact"]:,.2f}'
+            + (f', {n} rule(s) broken' if n else ''),
+            type='warning' if n else 'positive', position='top',
+        )
 
     # ================================================================
     # Add-Cashflow dialog handlers
@@ -1542,6 +1587,8 @@ class CashManagementController(BaseController[CashManagementRefs, CashManagement
         self.refs.edit_dialog_input.on('keydown.enter', self._on_edit_save)
 
         # What-if section
+        self.refs.whatif_open_btn.on_click(self._on_whatif_open)
+        self.refs.whatif_close_btn.on_click(self._on_whatif_close)
         self.refs.whatif_add_btn.on_click(self._on_whatif_add)
         self.refs.whatif_amount_input.on('keydown.enter', self._on_whatif_add)
         self.refs.whatif_evaluate_btn.on_click(self._on_whatif_evaluate)

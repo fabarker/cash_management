@@ -318,6 +318,20 @@ def build_view() -> CashManagementRefs:
         }
 
         /* ─── What-if: entry, verdict, comparison ─── */
+        /* The builder is a dialog rather than a strip inside the card, so
+           nothing about what-if is on screen until a plan exists to price
+           a route against. */
+        .whatif-dialog-card {
+            min-width: 720px;
+            max-width: 92vw;
+            padding: 26px 30px !important;
+            background-color: #ffffff !important;
+            border: 1px solid #d0d4d8 !important;
+            border-radius: 8px;
+        }
+        @media (max-width: 780px) {
+            .whatif-dialog-card { min-width: 0; width: 92vw; padding: 20px !important; }
+        }
         .whatif-entry {
             background-color: #f8f9fa;
             border: 1px solid #e4e7ea;
@@ -604,21 +618,41 @@ def build_view() -> CashManagementRefs:
                 with ui.column().classes('w-full') as cost_breakdown_container:
                     pass  # Populated by controller
 
-            # ── What-if (revealed on scenario load, not on solve) ──
-            # This sits outside ``results_section`` deliberately.  The
-            # optimiser's plan is a useful baseline, not a precondition:
-            # pricing a hand-entered route is worth doing with no baseline
-            # at all, and most of all on a scenario the solver calls
-            # Infeasible, where it is the only way to see what the binding
-            # constraint costs.
+            # ── What-if (revealed once a plan exists) ──
+            # Only the button lives in the card.  The trade builder is a
+            # dialog, so nothing about what-if is on screen until there is
+            # a plan to price a route against — and the wide comparison
+            # tables keep the full page width when they render below.
             with ui.element('div').classes('card-section hidden') as whatif_section:
                 ui.separator().style('margin: 0 0 24px 0;')
-                ui.label('What-If — Price Your Own Route').classes('card-section-title')
+                ui.label('What-If Analysis').classes('card-section-title')
                 ui.label(
-                    'Enter a route by hand and price it on the same ladder, '
-                    'against the same cost model, as the optimiser. Nothing is '
-                    're-solved — the suggested plan above stays as it is.'
+                    'Price a route you enter by hand against the plan above — '
+                    'same ladder, same cost model, no re-solve.'
                 ).style('font-size: 13px; color: #6c757d; margin-bottom: 14px;')
+
+                whatif_open_btn = (
+                    ui.button('Build a what-if route', icon='tune')
+                    .props('unelevated color=primary').style('height: 42px;')
+                )
+
+                # The verdict, the side-by-side breakdown and the two
+                # ladders render here, not in the dialog: past two
+                # currencies they need more width than a dialog has.
+                whatif_results_container = (
+                    ui.column().classes('w-full').style('margin-top: 20px;')
+                )
+
+        # ── What-if builder dialog (built once, reused) ──────────
+        with ui.dialog() as whatif_dialog:
+            with ui.card().classes('whatif-dialog-card'):
+                ui.label('Build a what-if route').classes('card-section-title')
+                ui.label(
+                    'Add the trades you want priced. Every option comes from '
+                    'the loaded scenario, so only dealable routes can be '
+                    'entered. Evaluating closes this and shows the comparison '
+                    'on the page behind.'
+                ).style('font-size: 13px; color: #6c757d; margin-bottom: 16px;')
 
                 with ui.element('div').classes('whatif-entry'):
                     with ui.row().classes('items-start gap-3 flex-wrap'):
@@ -653,9 +687,10 @@ def build_view() -> CashManagementRefs:
                 # from state on every change, remove buttons and all.
                 whatif_trades_container = ui.element('div').classes(
                     'w-full overflow-x-auto'
-                )
+                ).style('margin-top: 4px;')
 
-                with ui.row().classes('items-center gap-3').style('margin-top: 14px;'):
+                with ui.row().classes('items-center gap-3 flex-wrap').style(
+                        'margin-top: 16px;'):
                     whatif_evaluate_btn = (
                         ui.button('Evaluate my route', icon='calculate')
                         .props('unelevated color=primary').style('height: 42px;')
@@ -672,10 +707,10 @@ def build_view() -> CashManagementRefs:
                         ui.button('Clear', icon='clear')
                         .props('flat color=grey').style('height: 42px;')
                     )
-
-                whatif_results_container = (
-                    ui.column().classes('w-full').style('margin-top: 20px;')
-                )
+                    whatif_close_btn = (
+                        ui.button('Close', icon='close')
+                        .props('flat color=grey').style('height: 42px;')
+                    )
 
     return CashManagementRefs(
         group_number_input=group_number_input,
@@ -713,6 +748,9 @@ def build_view() -> CashManagementRefs:
         after_trade_table_rows=after_trade_table_rows,
         cost_breakdown_container=cost_breakdown_container,
         whatif_section=whatif_section,
+        whatif_open_btn=whatif_open_btn,
+        whatif_dialog=whatif_dialog,
+        whatif_close_btn=whatif_close_btn,
         whatif_ccy_select=whatif_ccy_select,
         whatif_day_select=whatif_day_select,
         whatif_tenor_select=whatif_tenor_select,

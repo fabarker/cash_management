@@ -86,9 +86,10 @@ saving obtained by breaking a rule is shown as **void**, with the rule named. A 
 that is cheaper with nothing broken gets a third verdict, because against a true
 optimum that should be impossible and the baseline is then the thing to doubt.
 
-No optimiser plan is required. The section appears as soon as a scenario loads, and
-on a scenario the solver calls `Infeasible` — S16 — pricing a hand plan is the only
-way to see what the binding constraint costs.
+The builder opens from a button that appears once you have run the optimiser, and the
+route you enter is priced against whatever plan came back. That includes a scenario the
+solver calls `Infeasible` — S16 — where there is no baseline to compare against but
+pricing a hand plan is still the only way to see what the binding constraint costs.
 
 ## Requirements
 
