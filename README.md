@@ -160,7 +160,10 @@ Four are switchable, on `Config.constraints`:
 English, with the arithmetic worked through on real scenarios — worth reading before
 changing any of them. `docs/sweeping-the-surplus.html` is the analysis behind
 `sweep_opening_surplus` — why unearmarked foreign credit has to be *dealt* on day 0 rather than
-merely gone by some later day, and why constraining day 0 alone is sufficient. Both are single self-contained files; open them in a
+merely gone by some later day, and why constraining day 0 alone is sufficient.
+`docs/grace-vs-sweep.html` explains what the two rules each control and why neither substitutes
+for the other: the sweep sets when you must decide, the grace sets how long you may still be
+holding. Both are single self-contained files; open them in a
 browser.
 
 Balance evolution, balance decomposition, activation linking and commission-tier linking
