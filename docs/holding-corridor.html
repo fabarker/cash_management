@@ -1,0 +1,942 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Holding Corridor</title>
+<style>
+/* ============================================================
+   Tokens — light is the base definition, dark redefines only
+   the token values. Nothing below defines a colour outside
+   this block, so all three viewer states resolve as a set.
+   ============================================================ */
+:root{
+  --ground:#F7F8FA;
+  --surface:#FFFFFF;
+  --surface-2:#F1F3F6;
+  --sunk:#EAEDF1;
+  --ink:#16202B;
+  --ink-2:#414E5C;
+  --muted:#78848F;
+  --rule:#DDE2E8;
+  --rule-soft:#EBEEF2;
+  --accent:#1F4E79;
+  --accent-2:#3E7CB1;
+  --accent-soft:#E7EEF5;
+  --good:#1B6E3C;
+  --good-soft:#E6F1E9;
+  --warn:#8A5A00;
+  --warn-soft:#FAF0DC;
+  --bad:#A32020;
+  --bad-soft:#F8E7E7;
+  --shadow:0 1px 2px rgba(22,32,43,.05), 0 4px 12px rgba(22,32,43,.05);
+  --radius:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#12171D;
+    --surface:#1A2129;
+    --surface-2:#212A33;
+    --sunk:#0E1318;
+    --ink:#E4E9EE;
+    --ink-2:#B3BDC7;
+    --muted:#8592A0;
+    --rule:#2C3742;
+    --rule-soft:#232C35;
+    --accent:#7FB2DC;
+    --accent-2:#A8CBE8;
+    --accent-soft:#182734;
+    --good:#68C08C;
+    --good-soft:#14251B;
+    --warn:#D9A94E;
+    --warn-soft:#2A2113;
+    --bad:#E08585;
+    --bad-soft:#2C1717;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#12171D;
+  --surface:#1A2129;
+  --surface-2:#212A33;
+  --sunk:#0E1318;
+  --ink:#E4E9EE;
+  --ink-2:#B3BDC7;
+  --muted:#8592A0;
+  --rule:#2C3742;
+  --rule-soft:#232C35;
+  --accent:#7FB2DC;
+  --accent-2:#A8CBE8;
+  --accent-soft:#182734;
+  --good:#68C08C;
+  --good-soft:#14251B;
+  --warn:#D9A94E;
+  --warn-soft:#2A2113;
+  --bad:#E08585;
+  --bad-soft:#2C1717;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms !important; transition-duration:.001ms !important}
+}
+
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+              "Helvetica Neue", Arial, sans-serif;
+  font-size:16px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+
+.mono, code, .fig, td.num, th.num{
+  font-family:ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+              "Liberation Mono", monospace;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── Shell ───────────────────────────────────────────── */
+.shell{max-width:1180px; margin:0 auto; padding:0 24px}
+.masthead{
+  border-bottom:1px solid var(--rule);
+  background:var(--surface);
+}
+.masthead .shell{padding-top:44px; padding-bottom:36px}
+.kicker{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--accent); font-weight:600; margin:0 0 14px;
+}
+h1{
+  font-size:clamp(1.9rem, 3.6vw, 2.6rem);
+  line-height:1.12; letter-spacing:-.02em; font-weight:650;
+  margin:0 0 16px; text-wrap:balance; max-width:20ch;
+}
+.standfirst{
+  font-size:1.09rem; color:var(--ink-2); margin:0; max-width:66ch;
+}
+
+.layout{display:grid; grid-template-columns:236px minmax(0,1fr); gap:52px; align-items:start}
+@media (max-width: 900px){
+  .layout{grid-template-columns:1fr; gap:0}
+}
+
+/* ── Table of contents ───────────────────────────────── */
+.toc{position:sticky; top:24px; padding:32px 0 40px}
+@media (max-width: 900px){
+  .toc{position:static; padding:28px 0 8px; border-bottom:1px solid var(--rule)}
+}
+.toc h2{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; margin:0 0 14px;
+}
+.toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+.toc a{
+  display:block; padding:5px 10px; border-radius:4px;
+  color:var(--ink-2); text-decoration:none; font-size:.875rem; line-height:1.4;
+  border-left:2px solid transparent;
+}
+.toc a:hover{background:var(--surface-2); color:var(--ink); border-left-color:var(--accent-2)}
+.toc a:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+main{padding:36px 0 96px; min-width:0}
+
+/* ── Sections ────────────────────────────────────────── */
+section{margin:0 0 68px; scroll-margin-top:24px}
+section > h2{
+  font-size:1.52rem; line-height:1.2; letter-spacing:-.014em; font-weight:640;
+  margin:0 0 6px; text-wrap:balance; padding-top:22px;
+  border-top:2px solid var(--ink);
+}
+section > .dek{color:var(--muted); margin:0 0 26px; font-size:.97rem; max-width:64ch}
+h3{
+  font-size:1.09rem; font-weight:640; letter-spacing:-.006em;
+  margin:34px 0 10px; text-wrap:balance;
+}
+h4{font-size:.94rem; font-weight:650; margin:22px 0 8px; color:var(--ink)}
+p{margin:0 0 1.05em; max-width:72ch}
+ul,ol{max-width:72ch; padding-left:1.25em; margin:0 0 1.05em}
+li{margin-bottom:.5em}
+strong{font-weight:640}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+
+code{
+  background:var(--sunk); border:1px solid var(--rule-soft);
+  padding:.08em .34em; border-radius:3px; font-size:.86em;
+}
+
+/* ── Cards ───────────────────────────────────────────── */
+.card{
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:22px 24px; margin:0 0 20px;
+}
+.card > :last-child{margin-bottom:0}
+.card-title{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; margin:0 0 12px;
+}
+
+/* ── Callouts ────────────────────────────────────────── */
+.note{
+  border:1px solid var(--rule); border-left:4px solid var(--accent);
+  background:var(--accent-soft); border-radius:var(--radius);
+  padding:16px 20px; margin:0 0 20px;
+}
+.note.caution{border-left-color:var(--warn); background:var(--warn-soft)}
+.note.critical{border-left-color:var(--bad); background:var(--bad-soft)}
+.note.affirm{border-left-color:var(--good); background:var(--good-soft)}
+.note > :last-child{margin-bottom:0}
+.note-label{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+  font-weight:700; margin:0 0 7px; color:var(--accent);
+}
+.note.caution .note-label{color:var(--warn)}
+.note.critical .note-label{color:var(--bad)}
+.note.affirm .note-label{color:var(--good)}
+
+/* ── Tables ──────────────────────────────────────────── */
+.scroll{overflow-x:auto; margin:0 0 20px; border-radius:var(--radius)}
+table{
+  width:100%; border-collapse:collapse; font-size:.885rem;
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius);
+}
+caption{
+  caption-side:top; text-align:left; color:var(--muted);
+  font-size:.82rem; padding:0 0 8px; font-style:normal;
+}
+th{
+  text-align:left; font-weight:600; font-size:.72rem; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted);
+  padding:10px 14px; border-bottom:1px solid var(--rule);
+  background:var(--surface-2); white-space:nowrap;
+}
+td{padding:9px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top; color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink); font-weight:550}
+.num, th.num{text-align:right; white-space:nowrap}
+tr.total td{border-top:2px solid var(--rule); font-weight:650; color:var(--ink)}
+.pos{color:var(--good); font-weight:600}
+.neg{color:var(--bad); font-weight:600}
+
+/* ── Ladder grid (currency rows x day columns) ───────── */
+.ladder{font-size:.83rem; width:auto; min-width:100%}
+.ladder th, .ladder td{padding:7px 15px; text-align:right; white-space:nowrap}
+.ladder th:first-child, .ladder td:first-child{text-align:left}
+.ladder .hole{background:var(--bad-soft); color:var(--bad); font-weight:650}
+.ladder .fill{background:var(--good-soft); color:var(--good); font-weight:650}
+.ladder .hold{background:var(--accent-soft); color:var(--accent); font-weight:650}
+
+/* ── Cost stack bars ─────────────────────────────────── */
+.stack{display:flex; flex-direction:column; gap:12px; margin:6px 0 4px}
+.stack-row{display:grid; grid-template-columns:150px minmax(0,1fr) 62px; gap:14px; align-items:center}
+.stack-name{font-size:.85rem; color:var(--ink)}
+.stack-track{background:var(--sunk); border-radius:3px; height:15px; overflow:hidden}
+.stack-fill{height:100%; border-radius:3px; background:var(--accent)}
+.stack-fill.b2{background:var(--accent-2)}
+.stack-fill.b3{background:var(--muted)}
+.stack-fill.b4{background:var(--rule)}
+.stack-val{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.8rem; text-align:right; color:var(--ink-2); font-variant-numeric:tabular-nums;
+}
+
+/* ── Corridor diagram ────────────────────────────────── */
+.corridor{display:flex; gap:5px; align-items:flex-end; margin:4px 0 6px; min-width:520px}
+.corridor-day{flex:1; display:flex; flex-direction:column; align-items:stretch; gap:5px}
+.corridor-band{
+  height:74px; border-radius:4px; position:relative;
+  background:var(--sunk); border:1px solid var(--rule);
+}
+.corridor-allowed{
+  position:absolute; left:0; right:0; border-radius:3px;
+  background:var(--accent-soft); border:1px solid var(--accent-2);
+}
+.corridor-lbl{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:10px; text-align:center; color:var(--muted); letter-spacing:.04em;
+}
+
+/* ── Branch tree ─────────────────────────────────────── */
+.tree{display:flex; flex-direction:column; gap:0; margin:4px 0 6px; min-width:540px}
+.tree-node{
+  border:1px solid var(--rule); border-radius:var(--radius);
+  background:var(--surface-2); padding:11px 15px; font-size:.85rem;
+}
+.tree-node .n-title{font-weight:640; color:var(--ink); display:block; margin-bottom:2px}
+.tree-node .n-body{color:var(--ink-2); font-size:.83rem}
+.tree-node.pruned{background:var(--bad-soft); border-color:var(--bad); opacity:.92}
+.tree-node.kept{background:var(--good-soft); border-color:var(--good)}
+.tree-split{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+.tree-stem{
+  height:20px; border-left:2px solid var(--rule); margin-left:26px;
+}
+.tree-fork{
+  height:16px; margin:0 26px; border-left:2px solid var(--rule);
+  border-right:2px solid var(--rule); border-bottom:2px solid var(--rule);
+  border-bottom-left-radius:6px; border-bottom-right-radius:6px;
+}
+
+/* ── Two-up comparison ───────────────────────────────── */
+.duo{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:0 0 20px}
+@media (max-width: 720px){ .duo{grid-template-columns:1fr} }
+.duo .card{margin:0; height:100%}
+
+/* ── Scenario block ──────────────────────────────────── */
+.scenario{
+  border:1px solid var(--rule); border-radius:var(--radius);
+  background:var(--surface); box-shadow:var(--shadow);
+  margin:0 0 24px; overflow:hidden;
+}
+.scenario-head{
+  padding:16px 22px; background:var(--surface-2);
+  border-bottom:1px solid var(--rule);
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+.tag{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px; font-weight:700; letter-spacing:.08em;
+  background:var(--accent); color:var(--surface);
+  padding:3px 8px; border-radius:3px;
+}
+:root[data-theme="dark"] .tag{color:var(--sunk)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tag{color:var(--sunk)} }
+.scenario-head h3{margin:0; font-size:1.03rem; font-weight:640}
+.scenario-body{padding:20px 22px}
+.scenario-body > :last-child{margin-bottom:0}
+
+.verdict{
+  border-top:1px solid var(--rule); background:var(--sunk);
+  padding:14px 22px; font-size:.9rem; color:var(--ink-2);
+}
+.verdict strong{color:var(--ink)}
+
+/* ── Rules of thumb ──────────────────────────────────── */
+.rules{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:12px; max-width:none}
+.rules li{
+  display:grid; grid-template-columns:30px minmax(0,1fr); gap:14px;
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:var(--radius); padding:15px 18px; margin:0;
+}
+.rules .r-n{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.82rem; font-weight:700; color:var(--accent);
+}
+.rules .r-t{font-weight:640; display:block; margin-bottom:3px; color:var(--ink)}
+.rules .r-d{color:var(--ink-2); font-size:.92rem}
+
+footer{
+  border-top:1px solid var(--rule); background:var(--surface);
+  color:var(--muted); font-size:.85rem;
+}
+footer .shell{padding:26px 24px 34px}
+footer p{max-width:72ch; margin:0 0 .6em}
+</style>
+<style>
+/* corridor-specific additions */
+.term{border-left:4px solid var(--accent); padding-left:18px; margin:26px 0}
+.term-tag{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:0 0 4px}
+.lad{font-size:.82rem; width:auto; min-width:100%}
+.lad th,.lad td{padding:6px 13px; text-align:right; white-space:nowrap}
+.lad th:first-child,.lad td:first-child{text-align:left; min-width:190px}
+.lad .zero{color:var(--muted); font-weight:400}
+.lad .up{color:var(--accent); font-weight:650}
+.lad .dn{color:var(--bad); font-weight:650}
+.lad .res{background:var(--accent-soft); font-weight:700; color:var(--ink)}
+.lad tr.sep td,.lad tr.sep th{border-top:2px solid var(--rule)}
+.formula{background:var(--sunk); border:1px solid var(--rule); border-radius:var(--radius);
+  padding:15px 18px; margin:16px 0; font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:.85rem; line-height:1.9; color:var(--ink); overflow-x:auto}
+.formula b{color:var(--accent); font-weight:700}
+.band{display:flex; gap:4px; align-items:stretch; min-width:520px; margin:8px 0 4px}
+.band-day{flex:1; display:flex; flex-direction:column; gap:4px}
+.band-cell{height:120px; position:relative; background:var(--sunk);
+  border:1px solid var(--rule); border-radius:4px}
+.band-zero{position:absolute; left:0; right:0; top:50%; border-top:1px dashed var(--muted)}
+.band-ok{position:absolute; left:2px; right:2px; background:var(--accent-soft);
+  border:1px solid var(--accent-2); border-radius:2px}
+.band-lbl{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px;
+  text-align:center; color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <p class="kicker">Cash &amp; FX Optimiser &middot; Internal Reference</p>
+    <h1>The Holding Corridor</h1>
+    <p class="standfirst">What the ceiling, the floor and the grace period each do, how they are worked out,
+    and where they interact. Every figure here comes from solving a shipped scenario.</p>
+  </div>
+</header>
+
+<div class="shell">
+<div class="layout">
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#short">The short version</a></li>
+      <li><a href="#ladder">Everything starts here</a></li>
+      <li><a href="#ceiling">The ceiling, in three parts</a></li>
+      <li><a href="#acquire">Part A &mdash; what you must buy</a></li>
+      <li><a href="#earmark">Part B &mdash; what is spoken for</a></li>
+      <li><a href="#grace">Part C &mdash; the grace period</a></li>
+      <li><a href="#combine">How the three combine</a></li>
+      <li><a href="#floor">The floor</a></li>
+      <li><a href="#slack">The one-unit slack</a></li>
+      <li><a href="#interact">Interactions worth knowing</a></li>
+      <li><a href="#set">How each is set</a></li>
+      <li><a href="#bypass">The coupling problem</a></li>
+      <li><a href="#ref">Quick reference</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="short">
+    <h2>The short version</h2>
+    <p class="dek">Two numbers per currency per day, and everything else is detail.</p>
+
+    <p>For every foreign currency, on every day of the horizon, the corridor sets two limits on the
+    closing balance:</p>
+
+    <div class="formula">
+      <b>&minus;floor[day]</b> &nbsp; &le; &nbsp; balance[day] &nbsp; &le; &nbsp; <b>ceiling[day]</b>
+    </div>
+
+    <p>The <strong>ceiling</strong> is the most of that currency you are allowed to be holding. The
+    <strong>floor</strong> is the deepest you are allowed to be overdrawn. Both are worked out
+    <em>before any trading</em>, from the opening balance and that currency's own expected payments and
+    receipts. Neither depends on what the optimiser decides to do.</p>
+
+    <p>The purpose is to stop the model taking a currency position for its own sake. Left alone, an
+    optimiser that notices one currency pays more interest than another will simply buy that currency
+    and sit on it. The corridor says: you may hold what your obligations justify, and no more.</p>
+
+    <div class="note">
+      <p class="note-label">The one thing to carry</p>
+      <p>The corridor never asks what a trade costs, and never asks whether a plan is a good one. It
+      only asks whether a <strong>balance</strong> is justified. Everything it forbids, it forbids by
+      making a balance impossible &mdash; not by ruling out a trade.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="ladder">
+    <h2>Everything starts here</h2>
+    <p class="dek">The do-nothing ladder: what each account would look like if nobody traded.</p>
+
+    <p>Take the opening balance in a currency, add that currency's expected payments and receipts day by
+    day, and change nothing else. That running balance is the <strong>do-nothing ladder</strong>, and it
+    is the raw material for every number in this document.</p>
+
+    <p>Here is scenario S07 &mdash; an account opening with 2,500,000 dollars and one small dollar
+    payment of 50,000 due on day 5:</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S07 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td>
+            <td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,500,000</td>
+            <td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,450,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Two things get read off this ladder and used everywhere below:</p>
+
+    <ul>
+      <li><strong>The hole</strong> &mdash; how far below zero the ladder goes on each day, or zero if it
+      does not. This is money you genuinely do not have and will have to buy.</li>
+      <li><strong>What you were given</strong> &mdash; the opening balance plus receipts banked so far.
+      No amount of trading can change this, which is what makes it safe to use in a limit.</li>
+    </ul>
+
+    <p>S07's ladder never goes below zero, so its hole is zero on every day. It has 2,500,000 dollars it
+    was given and one 50,000 obligation. That gap is exactly what the corridor is about.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="ceiling">
+    <h2>The ceiling, in three parts</h2>
+    <p class="dek">Three separate reasons you might legitimately be holding a currency.</p>
+
+    <p>The ceiling is not one idea. It is three, worked out independently and then combined:</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Part</th><th>Answers the question</th><th>Comes from</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A &mdash; to acquire</strong></td>
+              <td>How much of this currency am I short and will have to buy?</td>
+              <td>The hole in the ladder</td></tr>
+          <tr><td><strong>B &mdash; earmark</strong></td>
+              <td>How much of what I was given is already spoken for by a payment still ahead?</td>
+              <td>Receipts banked, capped by outflows remaining</td></tr>
+          <tr><td><strong>C &mdash; grace</strong></td>
+              <td>How much was already sitting there before I could have done anything about it?</td>
+              <td>The ladder itself, for the first few days only</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>A and B add together. C is not added &mdash; it acts as a minimum, lifting the ceiling only if it
+    is larger than the other two combined:</p>
+
+    <div class="formula">
+      ceiling[day] &nbsp;=&nbsp; <b>max</b>( &nbsp;A[day] + B[day], &nbsp; C[day] &nbsp;)
+    </div>
+
+    <p>Each of the three is worth taking on its own, because each has a scenario in the library where it
+    is the only one doing anything.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="acquire">
+    <h2>Part A &mdash; what you must buy</h2>
+    <p class="dek">Scenario S01: no opening balance, no receipts, one payment. Only part A is live.</p>
+
+    <p>You owe 750,000 dollars on day 4 and hold none. The hole in the ladder <em>is</em> the amount you
+    will have to buy, so the ceiling permits exactly that much and nothing else.</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S01 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="dn">&minus;750,000</td><td class="dn">&minus;750,000</td></tr>
+          <tr class="sep"><td>A &mdash; to acquire</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="up">750,000</td><td class="up">750,000</td></tr>
+          <tr><td>B &mdash; earmark</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr><td>C &mdash; grace</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr class="sep"><td class="res">CEILING</td><td class="res">0</td><td class="res">0</td><td class="res">0</td>
+              <td class="res">0</td><td class="res">750,000</td><td class="res">750,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Read the zeros on days 0 to 3. You are not permitted to hold a single dollar before day 4, because
+    until then you have no dollar obligation to justify it. Any purchase must therefore <em>settle</em> on
+    day 4 &mdash; the day the money leaves.</p>
+
+    <div class="note caution">
+      <p class="note-label">This is where the setting lives</p>
+      <p>How far ahead part A looks is the one genuinely adjustable piece of policy in the corridor. As
+      shipped it looks at <strong>the day itself and nothing else</strong>, which is why days 0 to 3 are
+      zero above. Turn <code>settle_on_need_only</code> off and it instead looks at the day plus the
+      longest settlement lag, so the day-4 hole becomes visible from day 2 and the ceiling opens
+      earlier.</p>
+      <p style="margin-bottom:0">The stricter setting means the currency is never held overnight &mdash;
+      bought for value on the day it is paid away. It costs the interest a short holding would have
+      earned: S01 is 1,126.07 with the wider window and 1,135.87 with the narrow one, and the 9.80
+      difference is exactly two days of dollar interest.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="earmark">
+    <h2>Part B &mdash; what is spoken for</h2>
+    <p class="dek">Scenario S04: a receipt arrives that a later payment will consume. Only part B is live.</p>
+
+    <p>1,400,000 dollars arrive on day 1. A payment of 950,000 falls due on day 5. The ladder never goes
+    below zero, so part A is zero throughout &mdash; there is nothing to buy. Without part B the ceiling
+    would be zero as well, and the model would be forced to sell the receipt and buy it back to make the
+    payment: two commissions and two spreads, for nothing.</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S04 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="zero">0</td><td class="up">1,400,000</td><td class="up">1,400,000</td>
+              <td class="up">1,400,000</td><td class="up">1,400,000</td><td class="up">450,000</td></tr>
+          <tr class="sep"><td>A &mdash; to acquire</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr><td>B &mdash; earmark</td><td class="zero">0</td><td class="up">950,000</td><td class="up">950,000</td>
+              <td class="up">950,000</td><td class="up">950,000</td><td class="up">950,000</td></tr>
+          <tr><td>C &mdash; grace</td><td class="zero">0</td><td class="up">1,400,000</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr class="sep"><td class="res">CEILING</td><td class="res">0</td><td class="res">1,400,000</td><td class="res">950,000</td>
+              <td class="res">950,000</td><td class="res">950,000</td><td class="res">950,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The earmark is the smaller of two figures, and both caps matter:</p>
+
+    <div class="formula">
+      B[day] = <b>min</b>( &nbsp;payments still ahead of you, &nbsp; money you have actually been given so far&nbsp; )
+    </div>
+
+    <ul>
+      <li><strong>Capped by payments ahead</strong> so you cannot earmark more than you will actually
+      spend. On day 1 there is 950,000 still to pay, so only 950,000 of the 1,400,000 is protected. The
+      other 450,000 is surplus and must be swept.</li>
+      <li><strong>Capped by what you were given</strong> so the earmark cannot be used to manufacture a
+      position. Before the money arrives, it protects nothing &mdash; which is why day 0 is zero even
+      though a payment exists on day 5. Trading cannot inflate this figure, so it cannot be gamed.</li>
+    </ul>
+
+    <p>Note that part B carries <strong>no time window at all</strong>. Money in hand against a known
+    obligation is not a position, however far off the payment is, and forcing it to be sold and rebought
+    would be pure waste.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="grace">
+    <h2>Part C &mdash; the grace period</h2>
+    <p class="dek">Scenario S07: an account that simply opens holding a lot of one currency.</p>
+
+    <p>This is the part you are most likely to meet without expecting it, and the one most likely to
+    explain a surprising answer.</p>
+
+    <p>An account opens with 2,500,000 dollars. The only dollar obligation all week is 50,000 on day 5.
+    So parts A and B allow just 50,000 &mdash; and the account is already holding fifty times that,
+    before the model gets a say.</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S07 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,500,000</td>
+              <td class="up">2,500,000</td><td class="up">2,500,000</td><td class="up">2,450,000</td></tr>
+          <tr class="sep"><td>A &mdash; to acquire</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr><td>B &mdash; earmark</td><td class="up">50,000</td><td class="up">50,000</td><td class="up">50,000</td>
+              <td class="up">50,000</td><td class="up">50,000</td><td class="up">50,000</td></tr>
+          <tr><td>C &mdash; grace</td><td class="up">2,500,000</td><td class="up">2,500,000</td><td class="zero">0</td>
+              <td class="zero">0</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr class="sep"><td class="res">CEILING</td><td class="res">2,500,000</td><td class="res">2,500,000</td><td class="res">50,000</td>
+              <td class="res">50,000</td><td class="res">50,000</td><td class="res">50,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Without part C the ceiling would be 50,000 on day 0 &mdash; and the account is holding 2,500,000
+    on day 0 as a matter of fact, not of choice. The model would have no legal starting position at all,
+    or would be forced into a same-day sale on day nought with no choice of tenor.</p>
+
+    <p>So the grace admits the balance that was already there, but only for the first few days. After
+    that the ordinary ceiling applies and the surplus must be gone.</p>
+
+    <div class="note">
+      <p class="note-label">Why the grace ends when it does</p>
+      <p>The reasoning is: money on the books at the start could not have been sold before day 0, and the
+      longest settlement your desk offers takes two days. So two days is exactly long enough to exit at
+      any tenor you like &mdash; and not a day more. Narrowing it would force a same-day sale and remove
+      the choice of tenor; widening it would permit holding for no reason.</p>
+    </div>
+
+    <p><strong>The deadline is on the settlement day, not the dealing day.</strong> This catches people
+    out. You have until day 2 for the money to be <em>gone</em>, not until day 2 to <em>deal</em>. A sale
+    dealt on day 1 for two-day settlement lands on day 3 and breaks the rule, even though day 1 is
+    comfortably inside the grace.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="combine">
+    <h2>How the three combine</h2>
+    <p class="dek">A and B add. C is a minimum, not an addition.</p>
+
+    <div class="formula">
+      ceiling[day] &nbsp;=&nbsp; <b>max</b>( &nbsp;A + B, &nbsp; C &nbsp;)
+    </div>
+
+    <p>The distinction matters. If C were added, an account that opened holding a currency would get its
+    opening balance <em>plus</em> its earmark <em>plus</em> its hole &mdash; a limit far larger than
+    anything it could justify. As a minimum, C only ever rescues the case where the ordinary ceiling
+    would be impossible to satisfy on day one.</p>
+
+    <p>Check it on S04 day 1: A is 0, B is 950,000, C is 1,400,000. The ceiling is 1,400,000 &mdash; C
+    won because the receipt had just landed and had not yet been swept. By day 2 the grace has expired
+    and the ceiling drops to the 950,000 earmark, which is what forces the 450,000 surplus out.</p>
+
+    <p>And on S07 day 0: A is 0, B is 50,000, C is 2,500,000, so the ceiling is 2,500,000. On day 2 C
+    falls away and the ceiling collapses to 50,000 &mdash; a fiftyfold drop between one day and the next,
+    which is the single most abrupt thing the corridor does.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="floor">
+    <h2>The floor</h2>
+    <p class="dek">One term, no window, no earmark. Much simpler than the ceiling.</p>
+
+    <p>The floor answers a different question: how overdrawn may this account go? And the answer is
+    simply <strong>no more overdrawn than doing nothing would have made it</strong>.</p>
+
+    <div class="formula">
+      floor[day] &nbsp;=&nbsp; <b>the hole in the do-nothing ladder on that day</b>
+    </div>
+
+    <p>Here is S05, where a euro payment of 1,600,000 lands three days before the receipt meant to cover
+    it:</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S05 &mdash; EUR</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="zero">0</td><td class="zero">0</td><td class="dn">&minus;1,600,000</td>
+              <td class="dn">&minus;1,600,000</td><td class="dn">&minus;1,600,000</td><td class="up">150,000</td></tr>
+          <tr class="sep"><td class="res">FLOOR</td><td class="res">0</td><td class="res">0</td><td class="res">&minus;1,600,000</td>
+              <td class="res">&minus;1,600,000</td><td class="res">&minus;1,600,000</td><td class="res">0</td></tr>
+          <tr><td class="res">CEILING</td><td class="res">0</td><td class="res">0</td><td class="res">1,600,000</td>
+              <td class="res">1,600,000</td><td class="res">1,600,000</td><td class="res">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Doing nothing lands you exactly on the floor, and any trading can only lift you off it. So the
+    floor forbids nothing the account could genuinely experience. What it forbids is an overdraft the
+    model would have to <em>manufacture</em> &mdash; selling a currency it never owned in order to be
+    short of it.</p>
+
+    <div class="note">
+      <p class="note-label">Why the floor exists at all</p>
+      <p>Being short a currency is the same speculation as being long, in reverse. Sell a low-yielding
+      currency you do not own and the interest differential accrues to you exactly as it would if you had
+      bought a high-yielding one. A ceiling with no floor would forbid one and permit the other.</p>
+    </div>
+
+    <p>Note that the ceiling and the floor are separate limits on separate things, not two ends of one
+    range that the balance slides along. The balance is split into a positive part and a negative part,
+    the ceiling caps the positive part, the floor caps the negative part, and only one of them can be
+    non-zero on any given day.</p>
+
+    <p>One consequence: <strong>the ceiling does not stop an account going overdrawn.</strong> That is
+    the floor's job, and the floor is deliberately generous. The model prices overdrafts as a real cost
+    and is often right to run one.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="slack">
+    <h2>The one-unit slack</h2>
+    <p class="dek">Both limits are applied about one currency unit looser than they read.</p>
+
+    <p>A limit sitting exactly on the value a plan needs is one the solver cannot always certify, and a
+    scenario was observed flipping to "no feasible plan" over a hundredth of a currency unit. So both
+    limits get a small amount of slack &mdash; the larger of one currency unit or one part in a million:</p>
+
+    <div class="formula">
+      applied limit &nbsp;=&nbsp; limit &nbsp;+&nbsp; <b>max</b>( limit &times; 0.000001, &nbsp; 1.0 )
+    </div>
+
+    <p>So a ceiling that reads 750,000 is applied at 750,001. Slack is only added where the limit is
+    already positive: a limit of zero stays exactly zero, so a currency with nothing to justify still
+    cannot hold a penny.</p>
+
+    <div class="note caution">
+      <p class="note-label">A known consequence</p>
+      <p>The model will use that slack if using it is free. In one scenario it holds one dollar more than
+      the round number &mdash; because the extra dollar earns a fraction of a penny in interest and costs
+      nothing, both pieces of the split ticket falling in the same commission band &mdash; and then has
+      to sell that single dollar on the last day to satisfy the end-of-week sweep. The plan is correct and
+      the trade is absurd. Setting a minimum ticket size removes it.</p>
+      <p style="margin-bottom:0">The general lesson: a numerical tolerance placed on a rule to keep the
+      solver stable is readable by the optimiser as genuine economic headroom.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="interact">
+    <h2>Interactions worth knowing</h2>
+    <p class="dek">Where two parts are live at once, and what happens.</p>
+
+    <h3>Both limits active in one week</h3>
+    <p>S22 runs a dollar balance in and out of overdraft four times. Different days are governed by
+    different parts, and both limits do work:</p>
+
+    <div class="scroll">
+      <table class="lad">
+        <thead><tr><th>S22 &mdash; USD</th><th>D0</th><th>D1</th><th>D2</th><th>D3</th><th>D4</th><th>D5</th></tr></thead>
+        <tbody>
+          <tr><td>Do-nothing ladder</td><td class="zero">0</td><td class="dn">&minus;800,000</td><td class="up">700,000</td>
+              <td class="dn">&minus;200,000</td><td class="dn">&minus;200,000</td><td class="up">200,000</td></tr>
+          <tr class="sep"><td>A &mdash; to acquire</td><td class="zero">0</td><td class="up">800,000</td><td class="zero">0</td>
+              <td class="up">200,000</td><td class="up">200,000</td><td class="zero">0</td></tr>
+          <tr><td>B &mdash; earmark</td><td class="zero">0</td><td class="zero">0</td><td class="up">900,000</td>
+              <td class="up">900,000</td><td class="zero">0</td><td class="zero">0</td></tr>
+          <tr class="sep"><td class="res">CEILING</td><td class="res">0</td><td class="res">800,000</td><td class="res">900,000</td>
+              <td class="res">1,100,000</td><td class="res">200,000</td><td class="res">0</td></tr>
+          <tr><td class="res">FLOOR</td><td class="res">0</td><td class="res">&minus;800,000</td><td class="res">0</td>
+              <td class="res">&minus;200,000</td><td class="res">&minus;200,000</td><td class="res">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Day 3 is the interesting one: the ceiling is 1,100,000, made of 200,000 you still have to buy plus
+    900,000 of the day-2 receipt that the day-3 payment will consume. Neither part alone would allow it,
+    and the account genuinely might hold that much legitimately.</p>
+
+    <h3>The grace can be the only thing keeping a scenario feasible</h3>
+    <p>Where an account opens holding more than its obligations justify, removing the grace leaves it
+    illegal on day 0 by construction &mdash; before any decision is made. It would then have to sell
+    same-day on day nought, and if the desk does not quote same-day settlement there is no legal plan at
+    all.</p>
+
+    <h3>The grace is worth real money where interest runs in your favour</h3>
+    <p>On S07 each extra day of grace is worth about 158 in interest, because the account is holding
+    2,500,000 dollars at a rate well above the base currency. Shorten the grace and the cost rises;
+    lengthen it and the cost falls, in a straight line. On a scenario with no unearmarked opening balance
+    the grace does nothing at all.</p>
+
+    <div class="note critical">
+      <p class="note-label">So the grace is a speculation allowance, measured in days</p>
+      <p>Where a currency yields more than base and the account holds more of it than it needs, the grace
+      period is precisely the window in which the model may keep collecting that difference. That is worth
+      knowing before changing it, because it is the one part of the corridor that directly trades policy
+      against money.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="set">
+    <h2>How each is set</h2>
+    <p class="dek">What you can configure, what is derived, and what is fixed.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Piece</th><th>How it is set</th><th>Can you change it?</th></tr></thead>
+        <tbody>
+          <tr><td><strong>The corridor as a whole</strong></td>
+              <td>The <code>holding_ceiling</code> switch. Off, and both limits disappear.</td>
+              <td>Yes &mdash; a flag, and a toggle on the web page</td></tr>
+          <tr><td><strong>Part A's look-ahead</strong></td>
+              <td><code>settle_on_need_only</code>. On (the default) it looks only at the day itself. Off, it looks ahead by the longest settlement lag.</td>
+              <td>Yes &mdash; a flag</td></tr>
+          <tr><td><strong>Part B, the earmark</strong></td>
+              <td>Entirely from the cash flows. Receipts banked, capped by payments remaining.</td>
+              <td>No &mdash; change the cash flows</td></tr>
+          <tr><td><strong>Part C, the grace</strong></td>
+              <td>The longest settlement lag your tenor list contains. With <code>T0, T1, T2</code> that is two days.</td>
+              <td><strong>Not directly</strong> &mdash; see below</td></tr>
+          <tr><td><strong>The floor</strong></td>
+              <td>Entirely from the cash flows. The deepest hole in the ladder.</td>
+              <td>No &mdash; change the cash flows</td></tr>
+          <tr><td><strong>The slack</strong></td>
+              <td><code>holding_min_slack</code> (1.0) and <code>holding_tolerance</code> (one in a million).</td>
+              <td>Yes, but they are numerical settings, not policy</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Two of the six are pure consequences of the data &mdash; the earmark and the floor cannot be set at
+    all, only changed by changing what the account expects to pay and receive. Two are proper policy
+    switches. One is a numerical tolerance. And one, the grace period, is neither: it is derived from
+    something else entirely.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="bypass">
+    <h2>The coupling problem</h2>
+    <p class="dek">The grace period is set by your tenor list, and that has a consequence nobody chose.</p>
+
+    <p>The grace period is not a setting. It is read off the longest settlement lag in the tenor list
+    &mdash; a piece of <em>market data</em> describing what your desk can deal. So adding a tenor to that
+    list lengthens the grace period, whether or not anyone intended it and whether or not the tenor is
+    ever used.</p>
+
+    <p>On S07, adding tenors that the model never deals:</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Tenors offered</th><th>Grace</th><th class="num">Cost</th><th class="num">Interest collected</th><th>Trade actually dealt</th></tr></thead>
+        <tbody>
+          <tr><td>T0, T1, T2 (as shipped)</td><td>2 days</td><td class="num">451.71</td><td class="num">333.13</td><td>sell on day 2, same-day</td></tr>
+          <tr><td>+ T3</td><td>3 days</td><td class="num">293.23</td><td class="num">491.60</td><td>sell on day 3, same-day</td></tr>
+          <tr><td>+ T4</td><td>4 days</td><td class="num">134.76</td><td class="num">650.08</td><td>sell on day 4, same-day</td></tr>
+          <tr><td>+ T5</td><td>5 days</td><td class="num">&minus;23.72</td><td class="num">808.56</td><td>sell on day 5, same-day</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Every one of those plans deals a single same-day trade. T3, T4 and T5 are never used &mdash; they
+    exist only as entries in a list. Each one buys a day of legal holding worth about 158.</p>
+
+    <div class="note critical">
+      <p class="note-label">And the last row is the part that matters</p>
+      <p>A cost of &minus;23.72 with a five-day tenor declared is <strong>identical</strong> to the cost
+      with the anti-speculation policy switched off entirely. Declaring a long enough tenor neutralises
+      the rule completely &mdash; and the flag summary still reports the policy as active, because as far
+      as it is concerned it is.</p>
+      <p style="margin-bottom:0">So the route to disabling a risk control runs through the market data
+      rather than through the risk settings. Those are usually different approval paths.</p>
+    </div>
+
+    <p>In practice this only bites where an account opens holding more of a currency than its obligations
+    justify &mdash; three of the forty currency-scenarios in the shipped library. But that is the ordinary
+    shape of a real book on a Monday morning, and it includes the one scenario written specifically to
+    test this policy.</p>
+
+    <p>The fix is small: make the grace period a setting in its own right, defaulting to the longest
+    settlement lag so that nothing changes unless someone chooses it. That would let you offer three-day
+    settlement while keeping a two-day grace, or vice versa, which are genuinely separate decisions.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <section id="ref">
+    <h2>Quick reference</h2>
+
+    <div class="formula">
+      <b>&minus;floor[day]</b> &nbsp;&le;&nbsp; balance[day] &nbsp;&le;&nbsp; <b>ceiling[day]</b><br><br>
+      ceiling[day] = <b>max</b>( A + B, C )<br>
+      &nbsp;&nbsp;A = the hole on this day &nbsp;<span style="color:var(--muted)">(or the worst hole within the settlement window, if settle_on_need_only is off)</span><br>
+      &nbsp;&nbsp;B = <b>min</b>( payments still ahead, money received so far )<br>
+      &nbsp;&nbsp;C = the do-nothing balance, for the first <i>grace</i> days only<br><br>
+      floor[day]&nbsp;&nbsp; = the hole on this day<br><br>
+      both limits applied + <b>max</b>( limit &times; 0.000001, 1.0 ), and only where the limit is above zero
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>If you see&hellip;</th><th>Look at&hellip;</th></tr></thead>
+        <tbody>
+          <tr><td>A currency it refuses to hold at all early in the week</td>
+              <td>Part A. With the default setting the ceiling is zero until the day the money leaves.</td></tr>
+          <tr><td>A receipt it keeps rather than sweeping</td>
+              <td>Part B. It is earmarked against a payment still ahead.</td></tr>
+          <tr><td>An opening balance it lets you keep for a couple of days, then not</td>
+              <td>Part C. The grace has expired.</td></tr>
+          <tr><td>A hand-entered plan rejected for a balance on a day with no cash flow</td>
+              <td>The settlement day, not the dealing day. The limit applies to where the money lands.</td></tr>
+          <tr><td>An overdraft it is happy to run</td>
+              <td>Not the ceiling's business. The floor permits any overdraft the cash flows themselves dig.</td></tr>
+          <tr><td>A trade of one currency unit</td>
+              <td>The slack. Harmless, absurd, and removed by setting a minimum ticket.</td></tr>
+          <tr><td>"No feasible plan" on an account that clearly has money</td>
+              <td>Turn one switch off and re-solve. Whichever restores feasibility was the binding one.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  </main>
+</div>
+</div>
+
+<footer>
+  <div class="shell">
+    <p>Every ladder, limit and cost on this page was produced by solving the shipped scenario library, not
+    worked out by hand. Where a figure is quoted it can be reproduced by loading that scenario and solving
+    it.</p>
+    <p style="margin-bottom:0">The fastest way to find out which rule is driving an answer is still to
+    switch one off and solve again. The whole sweep takes under a second.</p>
+  </div>
+</footer>
+
+</body>
+</html>

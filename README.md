@@ -149,6 +149,10 @@ Four are switchable, on `Config.constraints`:
   deal two legal tickets netting to an illegal amount, which the corridor cannot see
   because the position nets to zero every day.
 
+`docs/holding-corridor.html` explains the ceiling, the floor and the grace period in plain
+English, with the arithmetic worked through on real scenarios — worth reading before
+changing any of them. Open it in a browser; it needs nothing else.
+
 Balance evolution, balance decomposition, activation linking and commission-tier linking
 are structural and always applied.
 
