@@ -652,8 +652,18 @@ class CashOptimizer:
 
         The carve-out is capped by the do-nothing balance, which no amount
         of trading can inflate, so it cannot be used to build a position.
+
+        ``ConstraintFlags.settle_on_need_only`` closes the reach window to
+        the single day, so the balance may only be positive where the
+        do-nothing ladder is itself overdrawn.  A purchase must then settle
+        on the day the money leaves and the currency is never held
+        overnight.  Only the acquisition term narrows: the earmark and the
+        opening carve-out describe money the account was *given* rather
+        than money it is acquiring, and taking the window off those would
+        force a receipt to be sold and rebought for two commissions.
         """
         max_lag = max(self.cfg.tenors.values())
+        reach = 0 if self.cfg.constraints.settle_on_need_only else max_lag
         horizon = self.cfg.horizon_days
 
         ladder = self._do_nothing_ladder(ccy)
@@ -687,7 +697,7 @@ class CashOptimizer:
 
         ceiling: List[float] = []
         for d in range(horizon):
-            to_acquire = max(hole[d:min(d + max_lag + 1, horizon)])
+            to_acquire = max(hole[d:min(d + reach + 1, horizon)])
             earmarked = min(still_to_pay[d], received[d])
             cap = to_acquire + earmarked
             if d < max_lag:

@@ -1347,6 +1347,101 @@ class TestHoldingCorridor(CostAssertions):
                          "be reconsidered")
 
 
+class TestSettleOnNeedOnly(CostAssertions):
+    """``settle_on_need_only`` narrows the holding corridor's reach window
+    from the settlement window to the single day, so a purchase must settle
+    on the day the money leaves and the currency is never held overnight.
+
+    It is a policy tightening rather than a fix — the wider window is
+    deliberate, and exists so the model keeps a free choice of tenor — so
+    the flag defaults off and these tests pin both states."""
+
+    # The shipped Config has the dollar yielding well below sterling, so
+    # the model already declines to hold it early and the flag changes
+    # nothing.  It only bites when the foreign currency out-yields base,
+    # which is the case the rule exists for.
+    CARRY = dict(credit_carry_pa={"GBP": 3.50, "USD": 6.40,
+                                  "EUR": 0.2, "JPY": 0.01})
+
+    def _solve(self, on, flows, opening, horizon=6):
+        return solve(flows=flows, opening=opening, horizon=horizon,
+                     constraints=ConstraintFlags(settle_on_need_only=on),
+                     **self.CARRY)
+
+    @staticmethod
+    def _ladder(result, ccy="USD"):
+        return [round(b.balance, 2) for b in
+                sorted((b for b in result.balances if b.ccy == ccy),
+                       key=lambda b: b.day)]
+
+    def test_the_flag_defaults_off(self):
+        # A tightening nobody asked for should not arrive by upgrade.
+        self.assertFalse(ConstraintFlags().settle_on_need_only)
+
+    def test_off_still_permits_holding_within_the_settlement_window(self):
+        result = self._solve(False, [("USD", 4, -750_000)], {"GBP": 5_000_000})
+        trade, = result.trades
+        self.assertEqual(trade.settle_day, 2)
+        self.assertGreater(max(self._ladder(result)), 0.0,
+                           "the wide window should let it hold from day 2")
+
+    def test_on_forces_settlement_onto_the_day_the_money_leaves(self):
+        result = self._solve(True, [("USD", 4, -750_000)], {"GBP": 5_000_000})
+        trade, = result.trades
+        self.assertEqual(trade.settle_day, 4,
+                         "settlement must land on the obligation itself")
+
+    def test_on_means_the_currency_is_never_held_overnight(self):
+        # The point of the rule: bought for value on the day it is paid
+        # away, so the closing balance is zero on every single day.
+        result = self._solve(True, [("USD", 4, -750_000)], {"GBP": 5_000_000})
+        self.assertEqual(self._ladder(result), [0.0] * 6)
+
+    def test_on_costs_the_carry_it_gives_up(self):
+        flows, opening = [("USD", 4, -750_000)], {"GBP": 5_000_000}
+        cheap = self._solve(False, flows, opening).total_cost
+        strict = self._solve(True, flows, opening).total_cost
+        self.assertGreater(strict, cheap,
+                           "forgoing a positive carry differential costs money")
+
+    def test_it_does_not_narrow_the_earmark_or_the_opening_carve_out(self):
+        """Money the account was *given* is not an acquisition.
+
+        Narrowing this too would force an opening balance to be sold and
+        bought back for two commissions, which is the netting defect the
+        corridor's earmark term exists to prevent.
+        """
+        flows, opening = [("USD", 5, -200_000)], {"GBP": 5_000_000,
+                                                  "USD": 500_000}
+        loose = self._solve(False, flows, opening)
+        strict = self._solve(True, flows, opening)
+        self.assertEqual(plan_of(loose), plan_of(strict))
+        self.assertCostClose(strict.total_cost, loose.total_cost)
+        self.assertGreater(max(self._ladder(strict)), 0.0,
+                           "the opening balance must still be holdable")
+
+    def test_a_hand_plan_that_settles_early_becomes_a_violation(self):
+        cfg = Config(horizon_days=6, **self.CARRY)
+        cf = CashFlowSet(horizon_days=6)
+        cf.add("USD", 4, -750_000)
+        early = [ManualTrade("USD", 0, "T2", Direction.BUY, 750_000.0)]
+
+        cfg.constraints = ConstraintFlags(settle_on_need_only=False)
+        loose = CashManager(cfg, cf, opening_balances={"GBP": 5_000_000})
+        self.assertEqual(loose.constraint_violations(
+            loose.execute_trades(early)), [])
+
+        cfg.constraints = ConstraintFlags(settle_on_need_only=True)
+        strict = CashManager(cfg, cf, opening_balances={"GBP": 5_000_000})
+        self.assertTrue(any("holding_ceiling" in v for v in
+                            strict.constraint_violations(
+                                strict.execute_trades(early))),
+                        "the what-if page has to report this too")
+
+    def test_the_flag_is_reported_in_the_summary(self):
+        self.assertIn("settle_on_need_only", ConstraintFlags().summary())
+
+
 class TestKnownOpenFindings(CostAssertions):
     """These assert the *current* broken behaviour on purpose.  When a fix
     lands the test fails, which is the signal to update it."""

@@ -32,7 +32,9 @@ class ConstraintFlags:
     """
     Toggle individual optimizer constraints on or off.
 
-    All flags default to ``True`` (active).  Structural constraints
+    The three original flags default to ``True`` (active);
+    ``settle_on_need_only`` is a tightening rather than one of the standing
+    rules and defaults to ``False``.  Structural constraints
     (balance evolution, balance decomposition, activation linking,
     commission-tier linking) are always active — they define the model
     mechanics and cannot be disabled.
@@ -60,11 +62,37 @@ class ConstraintFlags:
         obligations have passed, because the ceiling falls to zero.  And
         it also reaches currency that arrived as a receipt, which a cap on
         purchases cannot see at all.
+    settle_on_need_only : bool
+        Narrow the holding ceiling from a settlement window to the single
+        day.  Off by default, and it only means anything while
+        ``holding_ceiling`` is on.
+
+        The ceiling normally admits the deepest hole anywhere in
+        ``d .. d + max_settlement_lag``, so currency may be held from the
+        moment the obligation comes within dealing reach.  With this on the
+        window closes to ``d`` alone: the balance may only be positive on a
+        day the do-nothing ladder is itself overdrawn.
+
+        The practical effect is stronger than it sounds.  A purchase must
+        then settle on the very day the money leaves, so the currency is
+        never held overnight at all — bought for value on the day it is
+        paid away.  That forfeits the carry the wider window collects, and
+        it collapses the choice of tenor: each dealing day admits exactly
+        the one tenor that lands on the obligation.
+
+        It is a policy, not a correction.  The wider window is deliberate
+        (see ``CashOptimizer._holding_ceiling``), and exists so the model
+        keeps a free choice of tenor rather than being forced onto the
+        shortest one.  Turn this on when no overnight position is
+        acceptable at any price, and expect both a higher cost and more
+        infeasibility against a minimum ticket, because a surplus has no
+        neighbouring day left to sit in.
     """
 
     terminal_sweep: bool = True
     no_loop: bool = True
     holding_ceiling: bool = True
+    settle_on_need_only: bool = False
 
     def summary(self) -> str:
         """Return a compact one-line summary of active/inactive flags."""
@@ -72,6 +100,7 @@ class ConstraintFlags:
             "terminal_sweep": self.terminal_sweep,
             "no_loop": self.no_loop,
             "holding_ceiling": self.holding_ceiling,
+            "settle_on_need_only": self.settle_on_need_only,
         }
         on = [k for k, v in flags.items() if v]
         off = [k for k, v in flags.items() if not v]
